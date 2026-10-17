@@ -1,6 +1,6 @@
 {
   "$schema": "https://turborepo.com/schema.json",
-  "globalPassThroughEnv": ["DATABASE_URL", "CI"],
+  "globalPassThroughEnv": ["DATABASE_URL", "MIGRATION_DATABASE_URL", "CI"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
