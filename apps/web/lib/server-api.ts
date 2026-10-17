@@ -1,5 +1,6 @@
 import 'server-only';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
+import { forwardedFor } from './client-ip';
 import { redirect } from 'next/navigation';
 import { ACCESS_COOKIE, API_URL } from './session';
 import type { Me } from './types';
@@ -31,6 +32,7 @@ export async function api<T>(
     method: init.method ?? 'GET',
     headers: {
       authorization: `Bearer ${token}`,
+      ...forwardedFor(await headers()),
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
     },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -68,7 +70,7 @@ export async function currentMe(): Promise<Me | null> {
   const token = (await cookies()).get(ACCESS_COOKIE)?.value;
   if (!token) return null;
   const res = await fetch(`${API_URL}/api/v1/me`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${token}`, ...forwardedFor(await headers()) },
     cache: 'no-store',
   });
   return res.ok ? ((await res.json()) as Me) : null;

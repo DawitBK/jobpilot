@@ -1,6 +1,14 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { conflict, notFound, ProblemException, unprocessable } from '@jobpilot/kit';
+import {
+  conflict,
+  FailureLimiter,
+  LockedOutError,
+  notFound,
+  ProblemException,
+  tooManyRequests,
+  unprocessable,
+} from '@jobpilot/kit';
 import argon2 from 'argon2';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { enqueue, recordAudit } from '../common/audit.js';
@@ -37,6 +45,32 @@ const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 const ARGON2 = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
 // A hash of a throwaway value, verified when the email is unknown so both failures cost the same.
 const DUMMY_HASH = await argon2.hash(randomUUID(), ARGON2);
+
+/**
+ * Five failed sign-ins for one email in fifteen minutes lock that email for fifteen minutes, even
+ * against the right password, so a guess spread over many addresses is still slow. Unknown emails
+ * are counted the same way, so the lock does not reveal which accounts exist. The cost: someone
+ * can lock a known email out for a while, which is the standard trade for slowing guessing.
+ */
+const loginFailures = new FailureLimiter({
+  maxFailures: 5,
+  windowMs: 15 * 60_000,
+  lockMs: 15 * 60_000,
+});
+
+function assertNotLocked(email: string): void {
+  try {
+    loginFailures.assertAllowed(email);
+  } catch (e) {
+    if (e instanceof LockedOutError) {
+      throw tooManyRequests(
+        e.retryAfterSeconds,
+        'Too many failed sign-ins for this account. Try again later.',
+      );
+    }
+    throw e;
+  }
+}
 
 export const hashPassword = (password: string) => argon2.hash(password, ARGON2);
 
@@ -86,6 +120,7 @@ export class AuthService {
   }
 
   async login(input: Login): Promise<TokenPair | OrganizationChoice> {
+    assertNotLocked(input.email);
     const [user] = await this.tenant.global((tx) =>
       tx.select().from(users).where(eq(users.email, input.email)),
     );
@@ -93,8 +128,10 @@ export class AuthService {
       .verify(user?.passwordHash ?? DUMMY_HASH, input.password)
       .catch(() => false);
     if (!user || !ok || user.status !== 'ACTIVE') {
+      loginFailures.recordFailure(input.email);
       throw unauthorized('Email or password is incorrect');
     }
+    loginFailures.reset(input.email);
     let memberships = await this.tenant.asUser(user.id, (tx) => this.membershipsOf(tx, user.id));
     if (memberships.length === 0) {
       // Someone removed from every organization still gets a workspace of their own to land in.

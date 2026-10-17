@@ -1,6 +1,7 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
+import { forwardedFor } from '@/lib/client-ip';
 import { redirect } from 'next/navigation';
 import {
   ACCESS_COOKIE,
@@ -32,7 +33,7 @@ async function post(path: string, payload: unknown): Promise<Reply> {
   try {
     res = await fetch(`${API_URL}/api/v1/auth/${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...forwardedFor(await headers()) },
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
@@ -117,7 +118,7 @@ export async function logout(): Promise<void> {
   if (refreshToken) {
     await fetch(`${API_URL}/api/v1/auth/logout`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...forwardedFor(await headers()) },
       body: JSON.stringify({ refreshToken }),
       cache: 'no-store',
     }).catch(() => undefined);
