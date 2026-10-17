@@ -5,7 +5,8 @@ a transparent matching engine, and applications that move through a state machin
 person can approve a submission**. Built so that one organization can never see another's data, and
 so that the audit trail proves it was not edited.
 
-> **Status:** the API foundation. The AI gateway, resume and cover-letter generation, the
+> **Status:** the API foundation and the web app (profile, jobs, matches, the application pipeline,
+> sources, team, audit). The AI gateway, resume and cover-letter generation, the
 > policy-gated browser worker, email intelligence and billing are specified and not built yet; see
 > the [enterprise bar](docs/enterprise-bar.md) for exactly what exists and what does not.
 
@@ -72,6 +73,7 @@ The integration suite creates the `jobpilot_app` role, recreates its database (w
 
 ```
 apps/api/        the HTTP API (NestJS)
+apps/web/        the web app (Next.js; ADR 0004)
 packages/kit/    shared building blocks: env, logging, problem+json, pagination, health, OpenAPI
 packages/config/ shared TypeScript and ESLint presets
 docs/            ADRs and the enterprise-bar scorecard

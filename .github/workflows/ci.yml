@@ -69,6 +69,9 @@ jobs:
       - name: Integration tests (PostgreSQL 18)
         run: pnpm test:integration
 
+      - name: End-to-end smoke test (API under the restricted role + web app + PostgreSQL 18)
+        run: DATABASE_URL=postgres://jobpilot:jobpilot@localhost:5432/jobpilot_smoke pnpm smoke
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

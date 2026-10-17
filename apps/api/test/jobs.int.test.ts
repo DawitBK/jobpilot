@@ -247,6 +247,9 @@ describe('matching', () => {
     expect(matches.body.items[0].overallScore).toBeGreaterThanOrEqual(
       matches.body.items.at(-1).overallScore,
     );
+    const forJob = await ctx.http().get(`/api/v1/matches?jobId=${weak.id}`).set(s.auth);
+    expect(forJob.body.page.total).toBe(1);
+    expect(forJob.body.items[0].jobId).toBe(weak.id);
 
     const apps = await ctx.http().get('/api/v1/applications').set(s.auth);
     const forStrong = apps.body.items.find((a: { jobId: string }) => a.jobId === strong.id);

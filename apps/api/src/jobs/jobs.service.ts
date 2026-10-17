@@ -501,6 +501,7 @@ export class JobsService {
       }
       if (query.candidateProfileId)
         where.push(eq(jobMatches.candidateProfileId, query.candidateProfileId));
+      if (query.jobId) where.push(eq(jobMatches.jobId, query.jobId));
       if (query.recommendation) where.push(eq(jobMatches.recommendation, query.recommendation));
       if (query.minScore !== undefined)
         where.push(gte(jobMatches.overallScore, String(query.minScore)));

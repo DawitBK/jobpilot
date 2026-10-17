@@ -181,6 +181,7 @@ export type MatchDto = z.output<typeof matchSchema>;
 export const listMatchesQuerySchema = paginationQuerySchema.extend({
   recommendation: z.enum(RECOMMENDATIONS).optional(),
   candidateProfileId: z.uuid().optional(),
+  jobId: z.uuid().optional().describe('Only the matches for this job'),
   minScore: z.coerce.number().min(0).max(100).optional(),
 });
 export type ListMatchesQuery = z.output<typeof listMatchesQuerySchema>;
