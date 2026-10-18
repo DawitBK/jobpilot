@@ -27,6 +27,8 @@ export interface AuthConfig {
   jwtSecret: string;
   accessTtlSeconds: number;
   refreshTtlSeconds: number;
+  /** Single sign-on through an OpenID Connect provider; absent means password sign-in only. */
+  oidc?: { issuer: string; clientId: string; clientSecret: string };
 }
 
 /** Routes are denied by default; mark a handler `@Public()` to open it. */

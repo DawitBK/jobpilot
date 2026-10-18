@@ -4,6 +4,8 @@ import { CurrentUser, Public, RequirePermission, type Principal } from '../commo
 import {
   addMemberSchema,
   idParamsSchema,
+  oidcExchangeSchema,
+  type OidcExchange,
   loginSchema,
   refreshSchema,
   registerSchema,
@@ -19,10 +21,27 @@ import {
   type UpdateOrganization,
 } from './auth.contract.js';
 import { AuthService } from './auth.service.js';
+import { OidcService } from './oidc.service.js';
 
 @Controller('api/v1')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(OidcService) private readonly oidc: OidcService,
+  ) {}
+
+  @Public()
+  @Get('auth/oidc/config')
+  oidcConfig() {
+    return this.oidc.publicConfig();
+  }
+
+  @Public()
+  @Post('auth/oidc/exchange')
+  @HttpCode(200)
+  oidcExchange(@Body(new ZodValidationPipe(oidcExchangeSchema)) body: OidcExchange) {
+    return this.oidc.exchange(body);
+  }
 
   @Public()
   @Post('auth/register')

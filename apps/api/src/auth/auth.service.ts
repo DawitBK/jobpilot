@@ -162,6 +162,21 @@ export class AuthService {
     return this.issue(user, chosen, randomUUID());
   }
 
+  /** Sign in someone the identity provider vouches for (single sign-on); they must already have an active account. They land in their first organization. */
+  async loginWithVerifiedEmail(email: string): Promise<TokenPair> {
+    const [user] = await this.tenant.global((tx) =>
+      tx.select().from(users).where(eq(users.email, email)),
+    );
+    if (!user || user.status !== 'ACTIVE')
+      throw unauthorized('There is no active account for this identity');
+    let memberships = await this.tenant.asUser(user.id, (tx) => this.membershipsOf(tx, user.id));
+    if (memberships.length === 0) {
+      await this.tenant.global((tx) => this.createPersonalOrganization(tx, user));
+      memberships = await this.tenant.asUser(user.id, (tx) => this.membershipsOf(tx, user.id));
+    }
+    return this.issue(user, memberships[0]!, randomUUID());
+  }
+
   async refresh(presented: string): Promise<TokenPair> {
     const hash = sha256(presented);
     type Outcome = TokenPair | 'reuse';

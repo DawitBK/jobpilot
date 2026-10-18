@@ -19,6 +19,16 @@ export const selectOrganizationSchema = z
   .strict();
 export type SelectOrganization = z.output<typeof selectOrganizationSchema>;
 
+export const oidcExchangeSchema = z
+  .object({
+    code: z.string().min(1).max(2048),
+    codeVerifier: z.string().min(43).max(128),
+    nonce: z.string().min(8).max(200),
+    redirectUri: z.url().max(2048),
+  })
+  .strict();
+export type OidcExchange = z.output<typeof oidcExchangeSchema>;
+
 export const refreshSchema = z.object({ refreshToken: z.string().min(20).max(200) }).strict();
 export type RefreshRequest = z.output<typeof refreshSchema>;
 

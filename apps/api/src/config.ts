@@ -9,6 +9,10 @@ export const envSchema = baseEnvSchema.extend({
     .regex(/^postgres(ql)?:\/\//, 'must be a postgres:// URL'),
   /** HMAC key for access tokens; at least 32 characters so a weak key fails at boot. */
   JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
+  /** Single sign-on: set all three, or none. */
+  OIDC_ISSUER: z.url().optional(),
+  OIDC_CLIENT_ID: z.string().min(1).optional(),
+  OIDC_CLIENT_SECRET: z.string().min(1).optional(),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce
     .number()

@@ -5,7 +5,8 @@ import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookie, refreshCookie } from './li
 
 /** Everything except the landing page and the sign-in and registration pages needs a session. */
 const PUBLIC_PATHS = ['/', '/login', '/register'];
-const isPublic = (pathname: string) => PUBLIC_PATHS.includes(pathname);
+const isPublic = (pathname: string) =>
+  PUBLIC_PATHS.includes(pathname) || pathname.startsWith('/login/');
 
 /**
  * Runs before every page and /bff request: renews the short-lived access token from the refresh
