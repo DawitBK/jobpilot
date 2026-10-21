@@ -10,7 +10,7 @@ import {
   unprocessable,
 } from '@jobpilot/kit';
 import argon2 from 'argon2';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { enqueue, recordAudit } from '../common/audit.js';
 import { AUTH_CONFIG, type AuthConfig, type Principal, TokenService } from '../common/auth.js';
 import { pgCode, unauthorized } from '../common/errors.js';
@@ -162,19 +162,59 @@ export class AuthService {
     return this.issue(user, chosen, randomUUID());
   }
 
-  /** Sign in someone the identity provider vouches for (single sign-on); they must already have an active account. They land in their first organization. */
-  async loginWithVerifiedEmail(email: string): Promise<TokenPair> {
+  /**
+   * Sign in someone the identity provider vouches for (single sign-on); they must already have an active account. They land in their first
+   * organization. The provider's id for the person is bound to the account at the first sign-in; after that the SAME email with a DIFFERENT id is
+   * refused (an address given to someone else later must not inherit the account).
+   */
+  async loginWithVerifiedEmail(email: string, subject: string): Promise<TokenPair> {
     const [user] = await this.tenant.global((tx) =>
       tx.select().from(users).where(eq(users.email, email)),
     );
     if (!user || user.status !== 'ACTIVE')
       throw unauthorized('There is no active account for this identity');
+    if (user.ssoSubject && user.ssoSubject !== subject) {
+      throw unauthorized(
+        'This sign-in belongs to a different person than the account with that email',
+      );
+    }
+    if (!user.ssoSubject) {
+      try {
+        await this.tenant.global((tx) =>
+          tx.update(users).set({ ssoSubject: subject }).where(eq(users.id, user.id)),
+        );
+      } catch (e) {
+        if (pgCode(e) === '23505')
+          throw unauthorized('This sign-in is already bound to another account');
+        throw e;
+      }
+    }
     let memberships = await this.tenant.asUser(user.id, (tx) => this.membershipsOf(tx, user.id));
     if (memberships.length === 0) {
       await this.tenant.global((tx) => this.createPersonalOrganization(tx, user));
       memberships = await this.tenant.asUser(user.id, (tx) => this.membershipsOf(tx, user.id));
     }
     return this.issue(user, memberships[0]!, randomUUID());
+  }
+
+  /**
+   * The identity provider says this person signed out or was disabled there: end every session of the account (all refresh tokens, in every
+   * organization; an access token lives at most its short lifetime). Answers the same for an id this app has never seen, so the call reveals nothing.
+   */
+  async revokeSessionsBySsoSubject(subject: string): Promise<number> {
+    const revoked = await this.tenant.global((tx) =>
+      tx
+        .update(refreshTokens)
+        .set({ revokedAt: sql`now()` })
+        .where(
+          and(
+            isNull(refreshTokens.revokedAt),
+            sql`${refreshTokens.userId} in (select id from users where sso_subject = ${subject})`,
+          ),
+        )
+        .returning({ id: refreshTokens.id }),
+    );
+    return revoked.length;
   }
 
   async refresh(presented: string): Promise<TokenPair> {
@@ -274,13 +314,14 @@ export class AuthService {
   }
 
   async listMembers(p: Principal): Promise<MemberDto[]> {
-    return this.tenant.inTenant(p, (tx) => this.members(tx, p.organizationId));
+    return this.tenant.inTenant(p, (tx) => this.members(tx, p.organizationId, p.userId));
   }
 
   async addMember(p: Principal, input: AddMember): Promise<MemberDto> {
     return this.tenant.inTenant(p, async (tx) => {
       const [target] = await tx.select().from(users).where(eq(users.email, input.email));
-      if (!target) {
+      // The platform administrator answers like an address nobody registered, to everyone but themselves.
+      if (!target || (target.platformAdmin && target.id !== p.userId)) {
         throw notFound('Nobody has registered with that email; ask them to sign up first');
       }
       const role = await this.templateRole(tx, input.role);
@@ -305,7 +346,9 @@ export class AuthService {
         resourceId: target.id,
         after: { role: input.role },
       });
-      return (await this.members(tx, p.organizationId)).find((m) => m.userId === target.id)!;
+      return (await this.members(tx, p.organizationId, p.userId)).find(
+        (m) => m.userId === target.id,
+      )!;
     });
   }
 
@@ -317,6 +360,13 @@ export class AuthService {
         .where(eq(organizationMembers.id, memberId))
         .for('update');
       if (!member) throw notFound(`Member ${memberId} does not exist`);
+      const [account] = await tx
+        .select({ platformAdmin: users.platformAdmin })
+        .from(users)
+        .where(eq(users.id, member.userId));
+      // The platform administrator answers like an id that was never there to everyone but themselves.
+      if (account?.platformAdmin && member.userId !== p.userId)
+        throw notFound(`Member ${memberId} does not exist`);
       const [org] = await tx
         .select()
         .from(organizations)
@@ -329,7 +379,9 @@ export class AuthService {
           'Ownership transfer is a separate, deliberate step',
         );
       }
-      const before = (await this.members(tx, p.organizationId)).find((m) => m.id === memberId)!;
+      const before = (await this.members(tx, p.organizationId, p.userId)).find(
+        (m) => m.id === memberId,
+      )!;
       const roleId = input.role ? (await this.templateRole(tx, input.role)).id : member.roleId;
       await tx
         .update(organizationMembers)
@@ -348,7 +400,9 @@ export class AuthService {
             ),
           );
       }
-      const after = (await this.members(tx, p.organizationId)).find((m) => m.id === memberId)!;
+      const after = (await this.members(tx, p.organizationId, p.userId)).find(
+        (m) => m.id === memberId,
+      )!;
       await recordAudit(tx, {
         organizationId: p.organizationId,
         actorUserId: p.userId,
@@ -428,7 +482,12 @@ export class AuthService {
     return rows.map((r) => ({ ...r, permissions: r.permissions as Permission[] }));
   }
 
-  private async members(tx: Tx, organizationId: string): Promise<MemberDto[]> {
+  /** The members of an organization as `viewerUserId` may see them: the platform administrator is in nobody else's list. */
+  private async members(
+    tx: Tx,
+    organizationId: string,
+    viewerUserId: string,
+  ): Promise<MemberDto[]> {
     const rows = await tx
       .select({
         id: organizationMembers.id,
@@ -442,7 +501,12 @@ export class AuthService {
       .from(organizationMembers)
       .innerJoin(users, eq(users.id, organizationMembers.userId))
       .innerJoin(roles, eq(roles.id, organizationMembers.roleId))
-      .where(eq(organizationMembers.organizationId, organizationId))
+      .where(
+        and(
+          eq(organizationMembers.organizationId, organizationId),
+          or(eq(users.platformAdmin, false), eq(users.id, viewerUserId)),
+        ),
+      )
       .orderBy(asc(organizationMembers.joinedAt), asc(organizationMembers.id));
     return rows.map((r) => ({ ...r, joinedAt: r.joinedAt.toISOString() }));
   }

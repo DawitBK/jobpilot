@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { AuthService } from '../src/auth/auth.service.js';
 import { ROLE_PERMISSIONS } from '../src/common/permissions.js';
 import {
   closeContext,
@@ -286,5 +287,116 @@ describe('platform', () => {
     expect(doc.status).toBe(200);
     expect(doc.body.paths['/api/v1/jobs'].post.security).toEqual([{ bearerAuth: [] }]);
     expect(doc.body.paths['/api/v1/auth/login'].post.security).toBeUndefined();
+  });
+});
+
+describe('the platform administrator', () => {
+  it('is in no member list, cannot be added or changed by anyone else, and still sees itself', async () => {
+    const host = await signUp(ctx);
+    const hidden = await joinAs(ctx, host, await signUp(ctx), 'ANALYST');
+    await ctx.owner.query('update users set platform_admin = true where id = $1', [hidden.userId]);
+
+    const members = await ctx.http().get('/api/v1/organization/members').set(host.auth);
+    expect(members.status).toBe(200);
+    expect(members.body.some((m: { userId: string }) => m.userId === hidden.userId)).toBe(false);
+
+    const memberRow = await ctx.owner.query(
+      'select id from organization_members where user_id = $1 and organization_id = $2',
+      [hidden.userId, host.organizationId],
+    );
+    const change = await ctx
+      .http()
+      .patch(`/api/v1/organization/members/${memberRow.rows[0].id}`)
+      .set(host.auth)
+      .send({ status: 'REMOVED' });
+    const nobody = await ctx
+      .http()
+      .patch(`/api/v1/organization/members/${randomUUID()}`)
+      .set(host.auth)
+      .send({ status: 'REMOVED' });
+    expect(change.status).toBe(404);
+    expect(nobody.status).toBe(404);
+    expect(change.body.title).toBe(nobody.body.title); // the same answer as an id that never existed
+    expect(
+      (
+        await ctx.owner.query('select status from organization_members where id = $1', [
+          memberRow.rows[0].id,
+        ])
+      ).rows[0].status,
+    ).toBe('ACTIVE');
+
+    // Adding the platform administrator by address answers exactly like an address nobody registered.
+    const another = await signUp(ctx);
+    await ctx.owner.query('update users set platform_admin = true where id = $1', [another.userId]);
+    const added = await ctx
+      .http()
+      .post('/api/v1/organization/members')
+      .set(host.auth)
+      .send({ email: another.email, role: 'RECRUITER' });
+    const unknown = await ctx
+      .http()
+      .post('/api/v1/organization/members')
+      .set(host.auth)
+      .send({ email: 'unregistered@example.test', role: 'RECRUITER' });
+    expect(added.status).toBe(404);
+    expect(added.body.title).toBe(unknown.body.title);
+
+    // The platform administrator sees their own row.
+    const own = await ctx.http().get('/api/v1/organization/members').set(another.auth);
+    expect(own.body.some((m: { userId: string }) => m.userId === another.userId)).toBe(true);
+  });
+});
+
+describe('single sign-on identity and sign-out', () => {
+  it('binds the provider id at the first sign-in, then refuses the same email with another id', async () => {
+    const auth = ctx.app.get(AuthService);
+    const person = await signUp(ctx);
+    const sub = `sub-${randomUUID()}`;
+    expect((await auth.loginWithVerifiedEmail(person.email, sub)).user.email).toBe(person.email);
+    expect(
+      (await ctx.owner.query('select sso_subject from users where id = $1', [person.userId]))
+        .rows[0].sso_subject,
+    ).toBe(sub);
+    expect((await auth.loginWithVerifiedEmail(person.email, sub)).user.id).toBe(person.userId);
+    await expect(
+      auth.loginWithVerifiedEmail(person.email, `sub-${randomUUID()}`),
+    ).rejects.toMatchObject({ status: 401 });
+    const other = await signUp(ctx);
+    await expect(auth.loginWithVerifiedEmail(other.email, sub)).rejects.toMatchObject({
+      status: 401,
+    }); // an id belongs to one account
+  });
+
+  it("the provider's sign-out ends every session of that person and nobody else's", async () => {
+    const auth = ctx.app.get(AuthService);
+    const a = await signUp(ctx);
+    const b = await signUp(ctx);
+    const subA = `sub-${randomUUID()}`;
+    const tokensA = await auth.loginWithVerifiedEmail(a.email, subA);
+    await auth.loginWithVerifiedEmail(b.email, `sub-${randomUUID()}`);
+    expect(await auth.revokeSessionsBySsoSubject(`sub-${randomUUID()}`)).toBe(0); // an id this app never saw: nothing, and no error
+    expect(await auth.revokeSessionsBySsoSubject(subA)).toBeGreaterThanOrEqual(2);
+    expect(
+      (await ctx.http().post('/api/v1/auth/refresh').send({ refreshToken: tokensA.refreshToken }))
+        .status,
+    ).toBe(401);
+    expect(
+      (await ctx.http().post('/api/v1/auth/refresh').send({ refreshToken: b.refreshToken })).status,
+    ).toBe(200);
+  });
+
+  it('the back-channel route is public and refuses a missing or malformed token', async () => {
+    expect(
+      (await ctx.http().post('/api/v1/auth/backchannel-logout').type('form').send({})).status,
+    ).toBe(400);
+    expect(
+      (
+        await ctx
+          .http()
+          .post('/api/v1/auth/backchannel-logout')
+          .type('form')
+          .send({ logout_token: 'x'.repeat(30) })
+      ).status,
+    ).toBeGreaterThanOrEqual(400);
   });
 });

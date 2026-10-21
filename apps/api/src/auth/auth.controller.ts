@@ -4,6 +4,8 @@ import { CurrentUser, Public, RequirePermission, type Principal } from '../commo
 import {
   addMemberSchema,
   idParamsSchema,
+  backchannelLogoutSchema,
+  type BackchannelLogout,
   oidcExchangeSchema,
   type OidcExchange,
   loginSchema,
@@ -41,6 +43,17 @@ export class AuthController {
   @HttpCode(200)
   oidcExchange(@Body(new ZodValidationPipe(oidcExchangeSchema)) body: OidcExchange) {
     return this.oidc.exchange(body);
+  }
+
+  /** The identity provider's back-channel logout: a signed token (form encoded) saying a person signed out or was disabled there. */
+  @Public()
+  @Post('auth/backchannel-logout')
+  @HttpCode(200)
+  async backchannelLogout(
+    @Body(new ZodValidationPipe(backchannelLogoutSchema)) body: BackchannelLogout,
+  ) {
+    await this.oidc.handleBackchannelLogout(body.logout_token);
+    return {};
   }
 
   @Public()

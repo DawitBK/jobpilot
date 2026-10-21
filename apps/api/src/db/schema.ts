@@ -99,11 +99,18 @@ export const users = pgTable(
     status: text('status', { enum: ['ACTIVE', 'SUSPENDED', 'DELETED'] })
       .notNull()
       .default('ACTIVE'),
+    /** The identity provider's id for this person ("sub"), bound at the first single sign-on; it is how a sign-out at the provider finds the account. */
+    ssoSubject: text('sso_subject'),
+    /** The platform administrator's account: in no member list and out of reach of every other user (answers like an id that was never there). */
+    platformAdmin: boolean('platform_admin').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
     check('users_email_lowercase', sql`${t.email} = lower(${t.email})`),
     uniqueIndex('users_email_uq').on(t.email),
+    uniqueIndex('users_sso_subject_uq')
+      .on(t.ssoSubject)
+      .where(sql`${t.ssoSubject} is not null`),
   ],
 );
 
