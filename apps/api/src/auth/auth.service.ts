@@ -13,7 +13,7 @@ import argon2 from 'argon2';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { enqueue, recordAudit } from '../common/audit.js';
 import { AUTH_CONFIG, type AuthConfig, type Principal, TokenService } from '../common/auth.js';
-import { pgCode, unauthorized } from '../common/errors.js';
+import { forbidden, pgCode, unauthorized } from '../common/errors.js';
 import type { Permission } from '../common/permissions.js';
 import type { Tx } from '../db/db.module.js';
 import {
@@ -27,6 +27,7 @@ import {
   type UserRow,
 } from '../db/schema.js';
 import { TenantDb } from '../db/tenant.js';
+import { fullNameFrom, hasAccessFromIdp, type SsoAccess } from './sso-access.js';
 import type {
   AddMember,
   Login,
@@ -163,14 +164,42 @@ export class AuthService {
   }
 
   /**
-   * Sign in someone the identity provider vouches for (single sign-on); they must already have an active account. They land in their first
-   * organization. The provider's id for the person is bound to the account at the first sign-in; after that the SAME email with a DIFFERENT id is
-   * refused (an address given to someone else later must not inherit the account).
+   * Sign in someone the identity provider vouches for (single sign-on). They land in their first organization. The provider's id for the person is
+   * bound to the account at the first sign-in; after that the SAME email with a DIFFERENT id is refused (an address given to someone else later
+   * must not inherit the account).
+   *
+   * Without `access` (the provider does not manage this application's access) the person must already have an active account here.
+   * With it, the provider decides whether they may use JobPilot at all: without the `member` role they are refused (403); with it the account
+   * and the person's own workspace are created at the first sign-in when missing. A person suspended here is still refused.
    */
-  async loginWithVerifiedEmail(email: string, subject: string): Promise<TokenPair> {
-    const [user] = await this.tenant.global((tx) =>
-      tx.select().from(users).where(eq(users.email, email)),
-    );
+  async loginWithVerifiedEmail(email: string, subject: string, access?: SsoAccess): Promise<TokenPair> {
+    if (access && !hasAccessFromIdp(access.roles)) {
+      throw forbidden('You have not been given access to JobPilot. Ask an administrator to give you a role in the identity provider.');
+    }
+    const find = () =>
+      this.tenant.global((tx) => tx.select().from(users).where(eq(users.email, email)));
+    let [user] = await find();
+    if (!user && access) {
+      try {
+        user = await this.tenant.global(async (tx) => {
+          const [row] = await tx
+            .insert(users)
+            .values({
+              email,
+              // Nobody knows this password: the account is for single sign-on until the person sets one.
+              passwordHash: await hashPassword(randomBytes(32).toString('base64url')),
+              fullName: fullNameFrom(access, email),
+            })
+            .returning();
+          await this.createPersonalOrganization(tx, row!);
+          return row!;
+        });
+      } catch (e) {
+        // Two first sign-ins at once: the other one created it.
+        if (pgCode(e) !== '23505') throw e;
+        [user] = await find();
+      }
+    }
     if (!user || user.status !== 'ACTIVE')
       throw unauthorized('There is no active account for this identity');
     if (user.ssoSubject && user.ssoSubject !== subject) {

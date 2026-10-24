@@ -40,9 +40,11 @@ export default async function LoginPage({
           <p>
             {error === 'no-account'
               ? 'The person signed in to single sign-on has no account here. Ask an administrator to add you, or sign in as someone else.'
-              : 'Single sign-on did not complete. Try again.'}
+              : error === 'no-access'
+                ? 'You have not been given access to JobPilot. Ask an administrator to give you a role for it in the identity provider, or sign in as someone else.'
+                : 'Single sign-on did not complete. Try again.'}
           </p>
-          {error === 'no-account' && ssoOffered ? (
+          {(error === 'no-account' || error === 'no-access') && ssoOffered ? (
             <a className="btn mt-2 w-full text-center" href="/login/sso/switch">
               Sign out of single sign-on and use another account
             </a>

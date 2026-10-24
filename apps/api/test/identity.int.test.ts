@@ -400,3 +400,74 @@ describe('single sign-on identity and sign-out', () => {
     ).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe('access the identity provider manages for this application', () => {
+  const emailOf = () => `${randomUUID()}@example.test`;
+  const userOf = async (email: string) =>
+    (await ctx.owner.query('select id, status, full_name, sso_subject from users where email = $1', [email])).rows[0];
+  const membershipsOf = async (userId: string) =>
+    (await ctx.owner.query('select count(*)::int as n from organization_members where user_id = $1', [userId])).rows[0].n as number;
+
+  it('creates the account and its own workspace at the first sign-in, for single sign-on only', async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const sub = `sub-${randomUUID()}`;
+    const tokens = await auth.loginWithVerifiedEmail(email, sub, { roles: ['member'], fullName: 'Abebe Kebede' });
+    expect(tokens.user).toMatchObject({ email, fullName: 'Abebe Kebede' });
+    const row = await userOf(email);
+    expect(row).toMatchObject({ status: 'ACTIVE', full_name: 'Abebe Kebede', sso_subject: sub });
+    expect(await membershipsOf(row.id)).toBe(1);
+    // Nobody knows its password: the usual sign-in cannot be used with a guessed one.
+    expect((await ctx.http().post('/api/v1/auth/login').send({ email, password: PASSWORD })).status).toBe(401);
+    // A second sign-in finds the same account and workspace.
+    expect((await auth.loginWithVerifiedEmail(email, sub, { roles: ['member'] })).user.id).toBe(row.id);
+    expect(await membershipsOf(row.id)).toBe(1);
+  });
+
+  it('refuses with 403 when the provider did not give the member role, and creates nothing', async () => {
+    const auth = ctx.app.get(AuthService);
+    for (const roles of [[], ['wizard'], ['OWNER']]) {
+      const email = emailOf();
+      await expect(auth.loginWithVerifiedEmail(email, `sub-${randomUUID()}`, { roles })).rejects.toMatchObject({ status: 403 });
+      expect(await userOf(email)).toBeUndefined();
+    }
+  });
+
+  it('a person who held an account and then lost the role is refused, and their account and workspace are kept', async () => {
+    const auth = ctx.app.get(AuthService);
+    const person = await signUp(ctx);
+    await expect(auth.loginWithVerifiedEmail(person.email, `sub-${randomUUID()}`, { roles: [] })).rejects.toMatchObject({ status: 403 });
+    const row = await userOf(person.email);
+    expect(row.status).toBe('ACTIVE');
+    expect(await membershipsOf(row.id)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not override an account suspended here, and still binds the id to one person', async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const sub = `sub-${randomUUID()}`;
+    await auth.loginWithVerifiedEmail(email, sub, { roles: ['member'] });
+    await ctx.owner.query(`update users set status = 'SUSPENDED' where email = $1`, [email]);
+    await expect(auth.loginWithVerifiedEmail(email, sub, { roles: ['member'] })).rejects.toMatchObject({ status: 401 });
+    await expect(auth.loginWithVerifiedEmail(emailOf(), sub, { roles: ['member'] })).rejects.toMatchObject({ status: 401 }); // an id belongs to one account
+  });
+
+  it('two first sign-ins at once create one account and one workspace', async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const sub = `sub-${randomUUID()}`;
+    const results = await Promise.allSettled([
+      auth.loginWithVerifiedEmail(email, sub, { roles: ['member'] }),
+      auth.loginWithVerifiedEmail(email, sub, { roles: ['member'] }),
+    ]);
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    const row = await userOf(email);
+    expect((await ctx.owner.query('select count(*)::int as n from users where email = $1', [email])).rows[0].n).toBe(1);
+    expect(await membershipsOf(row.id)).toBe(1);
+  });
+
+  it('without roles from the provider it still needs an existing account, as before', async () => {
+    const auth = ctx.app.get(AuthService);
+    await expect(auth.loginWithVerifiedEmail(emailOf(), `sub-${randomUUID()}`)).rejects.toMatchObject({ status: 401 });
+  });
+});

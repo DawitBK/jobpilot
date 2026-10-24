@@ -6,6 +6,7 @@ import { ProblemException } from '@jobpilot/kit';
 import { AuthService } from './auth.service.js';
 import type { OidcExchange, TokenPair } from './auth.contract.js';
 import { internalAddress, publicAddress } from './oidc-address.js';
+import { appRolesClaim, type SsoAccess } from './sso-access.js';
 
 interface Discovery {
   issuer: string;
@@ -170,11 +171,25 @@ export class OidcService {
       sub?: string;
       email?: string;
       email_verified?: boolean;
+      name?: string;
+      given_name?: string;
+      family_name?: string;
+      app_roles?: unknown;
     };
     if (!info.sub || info.sub !== claims.sub || !info.email || info.email_verified !== true) {
       throw unauthorized('The identity has no verified email');
     }
-    return this.auth.loginWithVerifiedEmail(info.email.trim().toLowerCase(), info.sub);
+    // `app_roles` is present only when the provider manages this application's access from its console: the roles it gave this person here
+    // (a list, empty meaning no access). Absent, the person must already have an account here, as before.
+    const roles = appRolesClaim(claims['app_roles'] ?? info.app_roles);
+    const fullName =
+      (typeof info.name === 'string' ? info.name : '').trim() ||
+      [info.given_name, info.family_name].filter((n) => typeof n === 'string' && n.trim() !== '').join(' ');
+    const access: SsoAccess | undefined = roles ? { roles, ...(fullName ? { fullName } : {}) } : undefined;
+    const email = info.email.trim().toLowerCase();
+    return access
+      ? this.auth.loginWithVerifiedEmail(email, info.sub, access)
+      : this.auth.loginWithVerifiedEmail(email, info.sub);
   }
 
   /**
