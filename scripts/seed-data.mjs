@@ -31,7 +31,69 @@ const skill = (skillName, category, proficiency, yearsExperience) => ({
 });
 
 /** Career graphs of the four candidates. */
+/** The person who runs the workspace seeded with SEED_INTO_TOKEN: a synthetic career, so their own dashboard is full too. */
+export const SELF = { key: 'owner.demo', name: 'Platform Administrator', role: 'CANDIDATE' };
+
 export const PROFILES = {
+  'owner.demo': {
+    patch: {
+      headline: 'Full-stack and platform engineer: TypeScript, PostgreSQL, Docker',
+      summary:
+        'Eight years shipping web products end to end and running them in production. Comfortable from the schema to the pipeline.',
+      targetRoles: ['Senior Backend Engineer', 'Platform Engineer', 'Full-stack Engineer'],
+      targetLocations: ['Remote'],
+      salaryMin: 90000,
+      salaryMax: 130000,
+      workAuthStatus: 'CITIZEN',
+      remotePref: 'REMOTE_ONLY',
+      relocationOk: false,
+    },
+    skills: [
+      skill('typescript', 'BACKEND', 'EXPERT', 8),
+      skill('node', 'BACKEND', 'EXPERT', 8),
+      skill('postgresql', 'DATABASE', 'ADVANCED', 7),
+      skill('react', 'FRONTEND', 'ADVANCED', 6),
+      skill('docker', 'DEVOPS', 'ADVANCED', 6),
+      skill('aws', 'DEVOPS', 'ADVANCED', 5),
+      skill('kubernetes', 'DEVOPS', 'INTERMEDIATE', 3),
+      skill('terraform', 'DEVOPS', 'INTERMEDIATE', 3),
+    ],
+    experience: [
+      {
+        companyName: 'Contoso Labs',
+        title: 'Lead Platform Engineer',
+        startDate: '2021-01-01',
+        description:
+          'Led the move of a monolith to containers; cut deploy time from an hour to six minutes.',
+        technologies: ['typescript', 'docker', 'kubernetes', 'terraform'],
+      },
+      {
+        companyName: 'Fabrikam Payments',
+        title: 'Senior Full-stack Engineer',
+        startDate: '2017-03-01',
+        endDate: '2020-12-31',
+        description: 'Built the merchant dashboard and the ledger API behind it.',
+        technologies: ['react', 'node', 'postgresql'],
+      },
+    ],
+    education: [
+      {
+        institution: 'Addis Ababa University',
+        degree: 'BSc',
+        field: 'Computer Science',
+        startDate: '2012-09-01',
+        endDate: '2016-07-01',
+      },
+    ],
+    projects: [
+      {
+        name: 'Single sign-on gateway',
+        description: 'OpenID Connect gateway used by six internal applications.',
+        technologies: ['typescript', 'postgresql'],
+        url: 'https://example.test/sso-gateway',
+      },
+    ],
+  },
   'ana.bekele': {
     patch: {
       headline: 'Senior backend engineer: TypeScript, Node, PostgreSQL',
@@ -497,6 +559,16 @@ const FINAL = [...INTERVIEW, 'FINAL_INTERVIEW'];
 
 /** Where applications end up, by person: each list is applied to that person's best matches in order. `by` says who acts: the candidate or the recruiter. */
 export const JOURNEYS = {
+  'owner.demo': [
+    { path: [...FINAL, 'OFFER', 'ACCEPTED'], label: 'accepted' },
+    { path: [...FINAL, 'OFFER'], label: 'offer waiting' },
+    { path: INTERVIEW, label: 'interviewing' },
+    { path: SENT, label: 'sent' },
+    { path: [...READY], label: 'waiting for approval' },
+    { path: [...SHORT, 'RESUME_GENERATED', 'NEEDS_HUMAN_REVIEW'], label: 'stopped for review' },
+    { path: [...SENT, 'NO_RESPONSE'], label: 'no response' },
+    { path: SHORT, label: 'shortlisted' },
+  ],
   'ana.bekele': [
     { path: [...FINAL, 'OFFER', 'ACCEPTED'], label: 'accepted' },
     { path: [...FINAL, 'OFFER'], label: 'offer waiting' },

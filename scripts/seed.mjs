@@ -22,6 +22,7 @@ import {
   OTHER_AGENCY,
   PEOPLE,
   PROFILES,
+  SELF,
   SOURCES,
 } from './seed-data.mjs';
 
@@ -35,6 +36,17 @@ if (PASSWORD.length < 12) {
     'Set SEED_PASSWORD (12 characters or more): a default is only used for a local API.',
   );
 }
+
+/**
+ * Seed INTO a workspace that already exists, as the person who owns it: SEED_INTO_TOKEN is that person's access
+ * token and SEED_INTO_ORG_NAME the workspace's name. The cast is added to it, and the owner gets a career of their own,
+ * so signing in as them shows the whole product at work. Nothing about the other workspaces is touched.
+ */
+const INTO_TOKEN = process.env.SEED_INTO_TOKEN;
+const INTO_ORG = process.env.SEED_INTO_ORG_NAME;
+if (INTO_TOKEN && !INTO_ORG)
+  throw new Error('SEED_INTO_TOKEN needs SEED_INTO_ORG_NAME (the workspace name)');
+const AGENCY_NAME = INTO_TOKEN ? INTO_ORG : AGENCY.name;
 
 const email = (key) => `${key}@${DOMAIN}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -187,23 +199,29 @@ async function main() {
   log(`Seeding ${API}`);
 
   // ---- people
-  for (const person of PEOPLE) {
+  for (const person of INTO_TOKEN
+    ? PEOPLE.filter((p) => p.key !== AGENCY.owner && p.key !== OTHER_AGENCY.owner)
+    : PEOPLE) {
     const result = await register(person);
     log(`  ${result === 'created' ? 'new   ' : 'exists'} ${email(person.key)}`);
   }
 
   // ---- the agency, its roles, and the second agency
-  const olivia = await signIn(AGENCY.owner);
-  await ensureOrgName(olivia, AGENCY.name);
+  const olivia = INTO_TOKEN
+    ? { accessToken: INTO_TOKEN, organization: { name: INTO_ORG } }
+    : await signIn(AGENCY.owner);
+  if (!INTO_TOKEN) await ensureOrgName(olivia, AGENCY.name);
   await ensurePlan(olivia, AGENCY.plan);
-  const gina = await signIn(OTHER_AGENCY.owner);
-  await ensureOrgName(gina, OTHER_AGENCY.name);
-  await ensurePlan(gina, OTHER_AGENCY.plan);
+  const gina = INTO_TOKEN ? null : await signIn(OTHER_AGENCY.owner);
+  if (gina) {
+    await ensureOrgName(gina, OTHER_AGENCY.name);
+    await ensurePlan(gina, OTHER_AGENCY.plan);
+  }
   for (const person of PEOPLE.filter((p) => p.role)) {
     if (person.role !== 'OWNER') await ensureMember(olivia, person.key, person.role);
-    if (person.also === 'globex') await ensureMember(gina, person.key, 'RECRUITER');
+    if (gina && person.also === 'globex') await ensureMember(gina, person.key, 'RECRUITER');
   }
-  const agency = await signIn(AGENCY.owner, AGENCY.name);
+  const agency = INTO_TOKEN ? olivia : await signIn(AGENCY.owner, AGENCY.name);
 
   // ---- already seeded? Jobs are the last thing added before applications are walked, so look there.
   const jobCount = must(
@@ -213,14 +231,16 @@ async function main() {
 
   // ---- candidates: full career graphs BEFORE jobs exist, so matching opens their applications
   const candidates = PEOPLE.filter((p) => p.role === 'CANDIDATE');
+  if (INTO_TOKEN) candidates.push(SELF);
+  const roster = INTO_TOKEN ? [...PEOPLE, SELF] : PEOPLE;
   const sessions = {};
   const profileIds = {};
   for (const c of candidates) {
-    sessions[c.key] = await signIn(c.key, AGENCY.name);
+    sessions[c.key] = c === SELF ? olivia : await signIn(c.key, AGENCY_NAME);
     profileIds[c.key] = await fillProfile(c.key, sessions[c.key]);
     log(`  profile ready: ${c.name}`);
   }
-  const rita = await signIn('rita.recruiter', AGENCY.name);
+  const rita = await signIn('rita.recruiter', AGENCY_NAME);
 
   must(
     await call('PUT', '/organization/policy', {
@@ -232,9 +252,11 @@ async function main() {
 
   // ---- the job market
   const made = await addJobs(rita, JOBS);
-  log(`  jobs: ${made} added to ${AGENCY.name}`);
-  const ritaGlobex = await signIn('rita.recruiter', OTHER_AGENCY.name);
-  log(`  jobs: ${await addJobs(ritaGlobex, GLOBEX_JOBS)} added to ${OTHER_AGENCY.name}`);
+  log(`  jobs: ${made} added to ${AGENCY_NAME}`);
+  if (!INTO_TOKEN) {
+    const ritaGlobex = await signIn('rita.recruiter', OTHER_AGENCY.name);
+    log(`  jobs: ${await addJobs(ritaGlobex, GLOBEX_JOBS)} added to ${OTHER_AGENCY.name}`);
+  }
 
   // ---- sources: one that was run (and really failed: the board does not exist), one switched off
   const existingSources = must(
@@ -289,7 +311,7 @@ async function main() {
       for (const [i, journey] of journeys.entries()) {
         const target = queue[i];
         if (!target) continue;
-        const actor = journey.by ? (await signIn(journey.by, AGENCY.name)).accessToken : token;
+        const actor = journey.by ? (await signIn(journey.by, AGENCY_NAME)).accessToken : token;
         await walk(actor, target.id, journey.path);
         moved.push({
           key,
@@ -338,7 +360,7 @@ async function main() {
   ]);
   let docs = 0;
   for (const m of moved.filter((x) => WITH_DOCS.has(x.last))) {
-    const person = PEOPLE.find((p) => p.key === m.key);
+    const person = roster.find((p) => p.key === m.key);
     const token = sessions[m.key].accessToken;
     const spec = PROFILES[m.key];
     const top = spec.skills
@@ -439,7 +461,7 @@ async function main() {
     'verify audit',
   );
   log('');
-  log(`${AGENCY.name}: ${apps.length} applications`);
+  log(`${AGENCY_NAME}: ${apps.length} applications`);
   log(
     `  ${Object.entries(byState)
       .map(([s, n]) => `${s} ${n}`)
