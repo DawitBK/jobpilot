@@ -72,6 +72,78 @@ jobs:
       - name: End-to-end smoke test (API under the restricted role + web app + PostgreSQL 18)
         run: DATABASE_URL=postgres://jobpilot:jobpilot@localhost:5432/jobpilot_smoke pnpm smoke
 
+  browser:
+    name: Browser journeys (seeded stack, real browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: jobpilot
+          POSTGRES_PASSWORD: jobpilot
+          POSTGRES_DB: jobpilot_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobpilot -d jobpilot_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: jobpilot
+      MIGRATION_DATABASE_URL: postgres://jobpilot:jobpilot@localhost:5432/jobpilot_e2e
+      DATABASE_URL: postgres://jobpilot_app:jobpilot_app@localhost:5432/jobpilot_e2e
+      API_URL: http://127.0.0.1:3000
+      WEB_URL: http://127.0.0.1:3031
+      # Throwaway values for a throwaway database; sign-in is limited per address and the suite signs in a lot.
+      JWT_SECRET: ci-only-ci-only-ci-only-ci-only-ci-only-0001
+      SECRETS_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+      RATE_LIMIT: 'off'
+      SEED_PASSWORD: ci-demo-passphrase-2026
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Create the runtime role, then migrate as the owner
+        run: |
+          psql -h localhost -U jobpilot -d jobpilot_e2e -c "create role jobpilot_app login nosuperuser nobypassrls password 'jobpilot_app'"
+          pnpm --filter @jobpilot/api db:migrate
+
+      - name: Start the API (restricted role) and the web app
+        run: |
+          (cd apps/api && node dist/main.js > /tmp/api.log 2>&1 &)
+          (cd apps/web && pnpm start > /tmp/web.log 2>&1 &)
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3000/health/ready >/dev/null && curl -sf -o /dev/null http://127.0.0.1:3031/login && exit 0
+            sleep 2
+          done
+          echo "stack did not come up"; tail -30 /tmp/api.log /tmp/web.log; exit 1
+
+      - name: Seed the demo world
+        run: pnpm seed
+
+      - name: Install the browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser journeys
+        run: pnpm test:e2e
+
+      - name: Logs on failure
+        if: failure()
+        run: tail -60 /tmp/api.log /tmp/web.log
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
