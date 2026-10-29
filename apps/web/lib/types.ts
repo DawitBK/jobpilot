@@ -183,3 +183,98 @@ export interface OrganizationChoice {
   selectionToken: string;
   organizations: { id: string; name: string; role: RoleName }[];
 }
+
+export interface NotificationItem {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  link: string | null;
+  read: boolean;
+  emailStatus: 'NOT_SENT' | 'SENT' | 'FAILED' | 'SKIPPED';
+  createdAt: string;
+}
+
+export interface QuotaLine {
+  resource: 'members' | 'sources' | 'applications' | 'aiGenerations';
+  label: string;
+  used: number;
+  limit: number | null;
+}
+export interface PlanSpec {
+  name: 'FREE' | 'PRO' | 'TEAM' | 'ENTERPRISE';
+  label: string;
+  priceUsdPerMonth: number | null;
+  limits: Record<QuotaLine['resource'], number | null>;
+}
+export interface Billing {
+  plan: PlanSpec['name'];
+  quotas: QuotaLine[];
+  plans: PlanSpec[];
+  payment: { connected: boolean; note: string };
+}
+
+export interface MfaStatus {
+  available: boolean;
+  enabled: boolean;
+  recoveryCodesLeft: number;
+}
+
+export interface Review {
+  tier: 'LOW' | 'MEDIUM' | 'HIGH';
+  reasons: { tier: 'LOW' | 'MEDIUM' | 'HIGH'; text: string }[];
+  requiresAcknowledgement: boolean;
+  autoSubmitAllowed: false;
+  autoSubmitNote: string;
+}
+
+export interface CheckedClaim {
+  text: string;
+  verdict: 'SUPPORTED' | 'UNSUPPORTED' | 'CONFLICTING' | 'UNKNOWN';
+  detail: string;
+  evidenceFactIds: string[];
+}
+export interface DocumentItem {
+  id: string;
+  kind: 'RESUME' | 'COVER_LETTER';
+  version: number;
+  content: string;
+  claims: CheckedClaim[];
+  verdicts: Record<string, number>;
+  provider: string;
+  model: string;
+  redactions: number;
+  needsReview: boolean;
+  createdAt: string;
+}
+export interface DocumentsResponse {
+  latest: DocumentItem[];
+  history: { id: string; kind: string; version: number; provider: string; createdAt: string }[];
+  ai: { available: boolean; source: 'organization' | 'server' | null; model: string };
+}
+
+export interface EmailItem {
+  id: string;
+  fromAddress: string;
+  subject: string;
+  body: string;
+  receivedAt: string;
+  classification: string;
+  confidence: number;
+  signals: string[];
+  suggestedState: string | null;
+  status: 'NEW' | 'ACTED' | 'DISMISSED';
+  decidedAt: string | null;
+}
+
+export interface PolicySettings {
+  minScoreForApproval: number;
+  salaryGapPercent: number;
+  maxMissingSkills: number;
+}
+export interface SecretInfo {
+  name: string;
+  hint: string;
+  createdAt: string;
+  rotatedAt: string | null;
+}

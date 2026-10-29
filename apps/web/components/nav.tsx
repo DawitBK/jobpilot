@@ -15,13 +15,17 @@ const ITEMS: Item[] = [
   { href: '/matches', label: 'Matches', needs: ['jobs:read'] },
   { href: '/jobs', label: 'Jobs', needs: ['jobs:read'] },
   { href: '/applications', label: 'Applications', needs: ['applications:read'] },
+  { href: '/notifications', label: 'Notifications' },
   { href: '/profile', label: 'My profile', needs: ['candidates:read'] },
   { href: '/sources', label: 'Job sources', needs: ['sources:manage'] },
   { href: '/team', label: 'Team', needs: ['members:read'] },
   { href: '/audit', label: 'Audit trail', needs: ['audit:read'] },
+  { href: '/billing', label: 'Plan and usage', needs: ['analytics:read'] },
+  { href: '/settings', label: 'Settings', needs: ['analytics:read'] },
+  { href: '/security', label: 'Security' },
 ];
 
-export function Nav({ permissions }: { permissions: string[] }) {
+export function Nav({ permissions, unread = 0 }: { permissions: string[]; unread?: number }) {
   const pathname = usePathname();
   const items = ITEMS.filter((i) => !i.needs || i.needs.some((p) => permissions.includes(p)));
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
@@ -41,6 +45,14 @@ export function Nav({ permissions }: { permissions: string[] }) {
               }`}
             >
               {i.label}
+              {i.href === '/notifications' && unread > 0 ? (
+                <span
+                  className="ml-2 rounded-full bg-brand px-1.5 py-0.5 text-xs text-white"
+                  aria-label={`${unread} unread`}
+                >
+                  {unread}
+                </span>
+              ) : null}
             </Link>
           </li>
         ))}

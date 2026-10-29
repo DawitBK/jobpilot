@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useActionState } from 'react';
 import { Notice } from '@/components/ui';
-import { chooseOrganization, type AuthState } from './actions';
+import { chooseOrganization, completeMfa, type AuthState } from './actions';
 
 type Action = (prev: AuthState, form: FormData) => Promise<AuthState>;
 
@@ -18,18 +18,49 @@ export function AuthForm({
 }) {
   const [state, run, pending] = useActionState<AuthState, FormData>(action, {});
   const [chosen, choose, choosing] = useActionState<AuthState, FormData>(chooseOrganization, {});
+  const [second, secondRun, secondPending] = useActionState<AuthState, FormData>(completeMfa, {});
   const err = state.fieldErrors ?? {};
   const suffix = next ? `?next=${encodeURIComponent(next)}` : '';
 
-  if (state.choice) {
+  const mfaToken = second.mfa?.mfaToken ?? state.mfa?.mfaToken;
+  if (mfaToken && !second.choice) {
+    return (
+      <form action={secondRun} className="card space-y-4 p-5">
+        <input type="hidden" name="next" value={next ?? ''} />
+        <input type="hidden" name="mfaToken" value={mfaToken} />
+        <label className="block text-sm">
+          <span className="mb-1 block font-semibold">Two-step sign-in</span>
+          <span className="mb-2 block text-xs text-muted">
+            Enter the six-digit code from your authenticator app, or one of your recovery codes.
+          </span>
+          <input
+            className="input"
+            name="code"
+            autoComplete="one-time-code"
+            inputMode="text"
+            autoFocus
+            required
+            aria-label="Code"
+          />
+        </label>
+        {second.error ? <Notice tone="bad">{second.error}</Notice> : null}
+        <button className="btn btn-primary w-full" disabled={secondPending}>
+          {secondPending ? 'Please wait…' : 'Continue'}
+        </button>
+      </form>
+    );
+  }
+
+  const choice = second.choice ?? state.choice;
+  if (choice) {
     return (
       <form action={choose} className="card space-y-4 p-5">
         <input type="hidden" name="next" value={next ?? ''} />
-        <input type="hidden" name="selectionToken" value={state.choice.selectionToken} />
+        <input type="hidden" name="selectionToken" value={choice.selectionToken} />
         <fieldset>
           <legend className="mb-2 text-sm font-semibold">Which organization?</legend>
           <div className="space-y-2">
-            {state.choice.organizations.map((o, i) => (
+            {choice.organizations.map((o, i) => (
               <label
                 key={o.id}
                 className="flex cursor-pointer items-center justify-between rounded-md border border-line px-3 py-2 text-sm hover:bg-surface"

@@ -4,13 +4,22 @@ import { useState } from 'react';
 import { Field, Modal, useMutation } from '@/components/form';
 import { Notice } from '@/components/ui';
 import { label } from '@/lib/format';
+import type { Review } from '@/lib/types';
 
 /**
  * Approval is the one step nothing else may take. It is its own card, with its own words, so it is
  * never a button among buttons.
  */
-export function ApprovalCard({ applicationId }: { applicationId: string }) {
+export function ApprovalCard({
+  applicationId,
+  review,
+}: {
+  applicationId: string;
+  review: Review | null;
+}) {
   const m = useMutation();
+  const [read, setRead] = useState(false);
+  const needsAck = review?.requiresAcknowledgement ?? false;
   return (
     <section className="card border-good p-4" aria-label="Approval">
       <h2 className="text-sm font-semibold">Ready for your decision</h2>
@@ -18,6 +27,27 @@ export function ApprovalCard({ applicationId }: { applicationId: string }) {
         Approving says you have read this application and it may be sent. Only a person can do this;
         no automation can approve for you. Your name and the time are recorded.
       </p>
+      {needsAck && review ? (
+        <div className="mt-3 rounded-md border border-bad/40 bg-bad/5 p-3 text-sm">
+          <p className="font-medium text-bad">Read this first: it is rated high risk.</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {review.reasons.map((r, i) => (
+              <li key={i}>{r.text}</li>
+            ))}
+          </ul>
+          <label className="mt-2 flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={read}
+              onChange={(e) => setRead(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              I have read this and still want to approve. It will be recorded with my name.
+            </span>
+          </label>
+        </div>
+      ) : null}
       {m.error ? (
         <div className="mt-2">
           <Notice tone="bad">{m.error}</Notice>
@@ -25,10 +55,14 @@ export function ApprovalCard({ applicationId }: { applicationId: string }) {
       ) : null}
       <button
         className="btn btn-primary mt-3 w-full"
-        disabled={m.busy}
+        disabled={m.busy || (needsAck && !read)}
         onClick={() => {
           if (window.confirm('Approve this application?'))
-            void m.run('POST', `/applications/${applicationId}/approve`, {});
+            void m.run(
+              'POST',
+              `/applications/${applicationId}/approve`,
+              needsAck ? { acknowledgeRisks: true } : {},
+            );
         }}
       >
         {m.busy ? 'Approving…' : 'Approve this application'}

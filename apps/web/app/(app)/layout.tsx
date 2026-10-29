@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import { logout } from '@/app/login/actions';
 import { Nav } from '@/components/nav';
-import { requireMe } from '@/lib/server-api';
+import { apiOrNull, requireMe } from '@/lib/server-api';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const me = await requireMe();
+  const unread = (await apiOrNull<{ count: number }>('/notifications/unread-count'))?.count ?? 0;
   return (
     <div className="min-h-screen md:grid md:grid-cols-[14rem_1fr]">
       <aside className="no-print border-b border-line bg-white p-3 md:min-h-screen md:border-r md:border-b-0">
@@ -15,7 +16,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             {me.user.fullName} · {me.role.toLowerCase()}
           </div>
         </div>
-        <Nav permissions={me.permissions} />
+        <Nav permissions={me.permissions} unread={unread} />
         <form action={logout} className="mt-4 px-2">
           <button className="btn w-full">Sign out</button>
         </form>

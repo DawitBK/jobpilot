@@ -54,7 +54,7 @@ export default async function Dashboard() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         {apps ? (
-          <section>
+          <section className="min-w-0">
             <h2 className="mb-2 text-sm font-semibold">Needs you</h2>
             {needsYou.length === 0 ? (
               <Empty>Nothing is waiting for a decision.</Empty>
@@ -79,7 +79,7 @@ export default async function Dashboard() {
           </section>
         ) : null}
         {matches ? (
-          <section>
+          <section className="min-w-0">
             <h2 className="mb-2 text-sm font-semibold">Best matches</h2>
             {matches.items.length === 0 ? (
               <Empty>

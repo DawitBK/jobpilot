@@ -74,7 +74,7 @@ export function useMutation() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   async function run<T>(
-    method: 'POST' | 'PATCH' | 'DELETE',
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     options: { headers?: Record<string, string>; refresh?: boolean } = {},

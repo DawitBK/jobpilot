@@ -18,6 +18,8 @@ export interface AuthState {
   fieldErrors?: Record<string, string>;
   /** Several organizations: the person must pick one before tokens are issued. */
   choice?: OrganizationChoice;
+  /** The account has two-step sign-in on: the person must give a code before tokens are issued. */
+  mfa?: { mfaToken: string };
 }
 
 /** Only same-site paths: a "next" parameter must never send someone to another website. */
@@ -40,7 +42,16 @@ async function post(path: string, payload: unknown): Promise<Reply> {
   } catch {
     return { state: { error: 'The server cannot be reached. Try again in a moment.' } };
   }
-  if (res.status === 401) return { state: { error: 'That email and password do not match.' } };
+  if (res.status === 401) {
+    return {
+      state: {
+        error:
+          path === 'mfa'
+            ? 'That code is not right, or it has expired. Try the next one.'
+            : 'That email and password do not match.',
+      },
+    };
+  }
   if (res.status === 429) {
     return { state: { error: 'Too many attempts. Wait a minute and try again.' } };
   }
@@ -68,7 +79,8 @@ async function finish(tokens: TokenPair, next: string): Promise<never> {
 async function signIn(payload: unknown, path: string, next: string): Promise<AuthState> {
   const r = await post(path, payload);
   if (!r.json) return r.state ?? {};
-  const body = r.json as TokenPair | OrganizationChoice;
+  const body = r.json as TokenPair | OrganizationChoice | { mfaRequired: true; mfaToken: string };
+  if ('mfaRequired' in body) return { mfa: { mfaToken: body.mfaToken } };
   if ('organizationSelectionRequired' in body) return { choice: body };
   return finish(body, next);
 }
@@ -78,6 +90,20 @@ export async function login(_prev: AuthState, form: FormData): Promise<AuthState
   const password = String(form.get('password') ?? '');
   if (!email || !password) return { error: 'Enter your email and password.' };
   return signIn({ email, password }, 'login', safeNext(form.get('next')));
+}
+
+/** The second step: a six-digit code, or a recovery code. */
+export async function completeMfa(_prev: AuthState, form: FormData): Promise<AuthState> {
+  const mfaToken = String(form.get('mfaToken') ?? '');
+  const entered = String(form.get('code') ?? '').trim();
+  if (!mfaToken || !entered)
+    return { mfa: { mfaToken }, error: 'Enter the code from your authenticator app.' };
+  const payload = /^\d{6}$/.test(entered)
+    ? { mfaToken, code: entered }
+    : { mfaToken, recoveryCode: entered };
+  const state = await signIn(payload, 'mfa', safeNext(form.get('next')));
+  // A wrong code keeps the person on the code step (their sign-in has not expired).
+  return state.error && !state.mfa ? { ...state, mfa: { mfaToken } } : state;
 }
 
 export async function chooseOrganization(_prev: AuthState, form: FormData): Promise<AuthState> {
