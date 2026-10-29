@@ -192,7 +192,7 @@ export function ActionButton({
     <span className="inline-flex flex-col">
       <button
         type="button"
-        className={`btn ${primary ? 'btn-primary' : ''} ${danger ? 'text-bad' : ''}`}
+        className={`btn btn-sm ${primary ? 'btn-primary' : ''} ${danger ? 'btn-ghost text-bad hover:bg-[var(--danger-bg)]' : ''}`}
         disabled={m.busy}
         onClick={async () => {
           if (confirm && !window.confirm(confirm)) return;

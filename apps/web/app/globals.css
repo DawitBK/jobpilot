@@ -1,55 +1,344 @@
 @import 'tailwindcss';
 
-@theme {
-  --font-sans: ui-sans-serif, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --color-ink: oklch(0.21 0.02 260);
-  --color-muted: oklch(0.52 0.02 260);
-  --color-line: oklch(0.91 0.01 260);
-  --color-surface: oklch(0.985 0.003 260);
-  --color-brand: oklch(0.52 0.17 255);
-  --color-brand-ink: oklch(0.99 0 0);
-  --color-good: oklch(0.55 0.14 150);
-  --color-warn: oklch(0.68 0.15 75);
-  --color-bad: oklch(0.55 0.2 27);
+/* The same design language as DMS, SSO, GMS and MOS: indigo brand, slate surfaces, a near-black sidebar,
+   layered shadows, semantic colours, light and dark themes. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+
+  --sidebar-bg: #050505;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-text: #8b93a3;
+  --sidebar-text-hover: #cfd4de;
+  --sidebar-text-active: #fafafa;
+  --sidebar-active-bg: rgba(255, 255, 255, 0.07);
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.04);
+  --sidebar-section-text: #5b6272;
+
+  --surface: #f4f6fb;
+  --surface-card: #ffffff;
+  --surface-raised: #f8fafd;
+
+  --border: #e2e8f0;
+  --border-subtle: #f0f4f8;
+  --border-strong: #cbd5e1;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  --success: #059669;
+  --success-bg: #ecfdf5;
+  --success-border: #a7f3d0;
+  --success-text: #065f46;
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
+  --warning-text: #92400e;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-text: #991b1b;
+  --info: #2563eb;
+  --info-bg: #eff6ff;
+  --info-border: #bfdbfe;
+  --info-text: #1e40af;
+
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 8px -2px rgba(15, 23, 42, 0.1), 0 2px 4px -2px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.1), 0 4px 8px -4px rgba(15, 23, 42, 0.06);
+  --shadow-xl: 0 24px 48px -8px rgba(15, 23, 42, 0.14), 0 8px 16px -8px rgba(15, 23, 42, 0.06);
+  --shadow-brand: 0 4px 20px rgba(99, 102, 241, 0.28);
+  --shadow-focus: 0 0 0 3px rgba(99, 102, 241, 0.2);
+
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --sidebar-width: 264px;
+  --topbar-height: 60px;
+}
+
+.dark {
+  --surface: #070b14;
+  --surface-card: #0f172a;
+  --surface-raised: #1a2539;
+  --border: #1e2d45;
+  --border-subtle: #141e2d;
+  --border-strong: #2d3f5a;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --success-bg: #052e16;
+  --success-border: #14532d;
+  --success-text: #4ade80;
+  --warning-bg: #1c1208;
+  --warning-border: #451a03;
+  --warning-text: #fbbf24;
+  --danger-bg: #1c0606;
+  --danger-border: #450a0a;
+  --danger-text: #f87171;
+  --info-bg: #0c1628;
+  --info-border: #1e3a5f;
+  --info-text: #60a5fa;
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.6), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 24px -4px rgba(0, 0, 0, 0.7), 0 4px 8px -4px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 24px 48px -8px rgba(0, 0, 0, 0.8), 0 8px 16px -8px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, 'JetBrains Mono', 'Fira Code', monospace;
+  --color-ink: var(--text-primary);
+  --color-muted: var(--text-secondary);
+  --color-subtle: var(--text-muted);
+  --color-line: var(--border);
+  --color-surface: var(--surface);
+  --color-card: var(--surface-card);
+  --color-raised: var(--surface-raised);
+  --color-brand: var(--brand-600);
+  --color-brand-ink: #ffffff;
+  --color-good: var(--success);
+  --color-warn: var(--warning);
+  --color-bad: var(--danger);
+  --color-info: var(--info);
 }
 
 @layer base {
   html {
     color-scheme: light;
   }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
     @apply bg-surface text-ink font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01';
   }
   :focus-visible {
-    outline: 2px solid var(--color-brand);
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--shadow-focus);
+    border-radius: var(--radius-md);
+  }
+  select:not(.input) {
+    @apply min-h-9 rounded-md border border-line bg-card px-3 pr-8 text-sm text-ink;
+    box-shadow: var(--shadow-xs);
+  }
+  select:not(.input):focus {
+    outline: none;
+    border-color: var(--brand-500);
+    box-shadow: var(--shadow-focus);
+  }
+  ::selection {
+    background: var(--brand-200);
+    color: var(--brand-900);
+  }
+  .dark ::selection {
+    background: var(--brand-800);
+    color: #fff;
   }
 }
 
 @layer components {
+  /* ----- buttons */
   .btn {
-    @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-line bg-card px-3.5 text-sm font-medium text-ink transition-all duration-150 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50;
+    box-shadow: var(--shadow-xs);
+  }
+  .btn:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+  .btn svg {
+    @apply h-4 w-4 shrink-0;
   }
   .btn-primary {
-    @apply border-brand bg-brand text-brand-ink hover:bg-brand/90;
+    @apply border-transparent text-brand-ink;
+    background: linear-gradient(180deg, var(--brand-500), var(--brand-600));
+    box-shadow:
+      0 1px 2px rgba(49, 46, 129, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+  .btn-primary:hover:not(:disabled) {
+    border-color: transparent;
+    background: linear-gradient(180deg, var(--brand-600), var(--brand-700));
+    box-shadow: var(--shadow-brand);
   }
   .btn-danger {
-    @apply border-bad bg-bad text-brand-ink hover:bg-bad/90;
+    @apply border-transparent text-brand-ink;
+    background: var(--danger);
   }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(0.92);
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent shadow-none hover:bg-raised;
+  }
+  .btn-sm {
+    @apply min-h-8 px-2.5 text-[13px];
+  }
+
+  /* ----- inputs */
   .input {
-    @apply min-h-9 w-full rounded-md border border-line bg-white px-3 text-sm placeholder:text-muted;
+    @apply min-h-9 w-full rounded-md border border-line bg-card px-3 text-sm text-ink transition-shadow placeholder:text-subtle;
+    box-shadow: var(--shadow-xs);
   }
+  .input:hover {
+    border-color: var(--border-strong);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--brand-500);
+    box-shadow: var(--shadow-focus);
+  }
+
+  /* ----- surfaces */
   .card {
-    @apply rounded-lg border border-line bg-white;
+    @apply rounded-xl border border-line bg-card;
+    box-shadow: var(--shadow-sm);
   }
+  .card-hover {
+    @apply transition-shadow hover:shadow-md;
+  }
+
+  /* ----- tables */
   .th {
-    @apply px-3 py-2 text-left text-xs font-semibold tracking-wide text-muted uppercase;
+    @apply px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-subtle uppercase;
+    background: var(--surface-raised);
   }
   .td {
-    @apply px-3 py-2 text-sm;
+    @apply px-4 py-3 text-sm;
   }
+
+  /* ----- badges */
   .badge {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap;
+  }
+  .badge-neutral {
+    background: var(--surface-raised);
+    color: var(--text-secondary);
+    border-color: var(--border);
+  }
+  .badge-good {
+    background: var(--success-bg);
+    color: var(--success-text);
+    border-color: var(--success-border);
+  }
+  .badge-warn {
+    background: var(--warning-bg);
+    color: var(--warning-text);
+    border-color: var(--warning-border);
+  }
+  .badge-bad {
+    background: var(--danger-bg);
+    color: var(--danger-text);
+    border-color: var(--danger-border);
+  }
+  .badge-info {
+    background: var(--brand-50);
+    color: var(--brand-700);
+    border-color: var(--brand-200);
+  }
+  .dark .badge-info {
+    background: rgba(99, 102, 241, 0.14);
+    color: var(--brand-300);
+    border-color: rgba(99, 102, 241, 0.35);
+  }
+
+  /* ----- the app shell */
+  .sidebar {
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--sidebar-border);
+    width: var(--sidebar-width);
+  }
+  .nav-link {
+    @apply relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[14px] font-medium transition-colors;
+    color: var(--sidebar-text);
+  }
+  .nav-link:hover {
+    color: var(--sidebar-text-hover);
+    background: var(--sidebar-hover-bg);
+  }
+  .nav-link[aria-current='page'] {
+    color: var(--sidebar-text-active);
+    background: var(--sidebar-active-bg);
+  }
+  .nav-link[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--brand-500);
+  }
+  .nav-link svg {
+    @apply h-[18px] w-[18px] shrink-0;
+  }
+  .nav-section {
+    @apply px-3 pt-5 pb-1.5 text-[11px] font-semibold tracking-wider uppercase;
+    color: var(--sidebar-section-text);
+  }
+  .topbar {
+    height: var(--topbar-height);
+    background: color-mix(in srgb, var(--surface-card) 92%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ----- motion */
+  .fade-up {
+    animation: fadeUp 0.22s ease both;
+  }
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--surface-raised) 25%,
+      var(--border) 50%,
+      var(--surface-raised) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite;
+    border-radius: var(--radius-md);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-up,
+  .skeleton {
+    animation: none;
   }
 }
 
