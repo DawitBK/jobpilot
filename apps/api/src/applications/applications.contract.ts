@@ -61,6 +61,12 @@ export const transitionSchema = z
   .strict();
 export type TransitionRequest = z.output<typeof transitionSchema>;
 
+/** Approving takes no body, except to say the person has read a high-risk review. */
+export const approveSchema = z
+  .object({ acknowledgeRisks: z.boolean().optional() })
+  .strict()
+  .optional();
+
 export const listApplicationsQuerySchema = paginationQuerySchema.extend({
   state: z.enum(APPLICATION_STATES).optional(),
   candidateProfileId: z.uuid().optional(),

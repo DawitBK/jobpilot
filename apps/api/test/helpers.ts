@@ -4,8 +4,12 @@ import { parseEnv } from '@jobpilot/kit';
 import pg from 'pg';
 import request from 'supertest';
 import { envSchema } from '../src/config.js';
+import { codeAt, stepOf } from '../src/auth/totp.js';
 import { createApp } from '../src/create-app.js';
 import type { JobFeedFetcher } from '../src/jobs/feeds.js';
+import type { AiProvider, AiRequest } from '../src/ai/provider.js';
+import type { Mailer, MailMessage } from '../src/outbox/mailer.js';
+import { OutboxDispatcher } from '../src/outbox/outbox.dispatcher.js';
 
 export const PASSWORD = 'correct horse battery staple';
 
@@ -22,6 +26,39 @@ export class FakeFetcher implements JobFeedFetcher {
   }
 }
 
+/** Collects what would have been emailed; `failNext` makes the next send fail like a mail outage would. */
+export class CaptureMailer implements Mailer {
+  readonly configured = true;
+  readonly sent: MailMessage[] = [];
+  failing = false;
+  async send(message: MailMessage): Promise<void> {
+    if (this.failing) throw new Error('mail server unreachable');
+    this.sent.push(message);
+  }
+}
+
+/**
+ * Stands in for the language model. It records the key it was given and every request, and answers with
+ * whatever `reply` returns, or throws what `fail` holds. No suite ever calls a real provider.
+ */
+export class FakeAi {
+  readonly keys: string[] = [];
+  readonly requests: AiRequest[] = [];
+  reply: (request: AiRequest) => string = () =>
+    JSON.stringify({ content: 'Nothing to say.', claims: [] });
+  fail: Error | null = null;
+  readonly factory = (apiKey: string): AiProvider => ({
+    name: 'fake',
+    model: 'fake-model-1',
+    complete: async (request) => {
+      this.keys.push(apiKey);
+      this.requests.push(request);
+      if (this.fail) throw this.fail;
+      return { text: this.reply(request), model: 'fake-model-1' };
+    },
+  });
+}
+
 export interface TestContext {
   app: INestApplication;
   /** The owner role (superuser in tests): sees everything, for setup and for tampering checks. */
@@ -29,6 +66,10 @@ export interface TestContext {
   /** The runtime role: what the application connects as, and subject to row-level security. */
   runtime: pg.Pool;
   fetcher: FakeFetcher;
+  mailer: CaptureMailer;
+  ai: FakeAi;
+  /** Run the outbox dispatcher once, now (the background loop is off in tests). */
+  dispatch: () => Promise<number>;
   http: () => ReturnType<typeof request>;
   close: () => Promise<void>;
 }
@@ -44,18 +85,26 @@ export interface Session {
 }
 
 export async function startContext(): Promise<TestContext> {
+  const ai = new FakeAi();
   const env = parseEnv(envSchema, {
     ...process.env,
     NODE_ENV: 'test',
     JWT_SECRET: 'test-secret-test-secret-test-secret-123456',
+    OUTBOX_POLL_MS: '0',
+    // 32 bytes, fixed: the suite only needs encryption to work, not to be secret.
+    SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'),
   });
   const fetcher = new FakeFetcher();
-  const app = await createApp(env, { fetcher });
+  const mailer = new CaptureMailer();
+  const app = await createApp(env, { fetcher, mailer, aiProviderFactory: ai.factory });
   return {
     app,
     owner: new pg.Pool({ connectionString: process.env['MIGRATION_DATABASE_URL'], max: 2 }),
     runtime: new pg.Pool({ connectionString: process.env['DATABASE_URL'], max: 2 }),
     fetcher,
+    mailer,
+    ai,
+    dispatch: () => app.get(OutboxDispatcher).tick(),
     http: () => request(app.getHttpServer()),
     close: async () => {
       await app.close();
@@ -106,13 +155,24 @@ export async function signIn(ctx: TestContext, email: string): Promise<Session> 
   return sessionFrom(res.body);
 }
 
-/** Put `person` into `host`'s organization with a role, and return their session in that organization. */
+/**
+ * Put `person` into `host`'s organization with a role, and return their session in that organization.
+ * Fixtures need room for many people, so the host's organization is put on the TEAM plan first; the
+ * billing tests pass `plan: null` to keep the limits that a real free workspace has.
+ */
 export async function joinAs(
   ctx: TestContext,
   host: Session,
   person: Session,
   role: string,
+  options: { plan?: string | null } = {},
 ): Promise<Session> {
+  if (options.plan !== null) {
+    await ctx.owner.query(`update organizations set plan = $2 where id = $1`, [
+      host.organizationId,
+      options.plan ?? 'TEAM',
+    ]);
+  }
   const added = await ctx
     .http()
     .post('/api/v1/organization/members')
@@ -175,4 +235,19 @@ export async function addSkills(
 export async function myProfile(ctx: TestContext, who: Session) {
   const res = await ctx.http().get('/api/v1/candidates/me').set(who.auth);
   return res.body as { id: string; version: number; yearsExperience: number };
+}
+
+/** Turn two-step sign-in on for a new person; returns what they would have in their authenticator app. */
+export async function enrolMfa(ctx: TestContext, fullName: string) {
+  const s = await signUp(ctx, fullName);
+  const setup = await ctx.http().post('/api/v1/me/mfa/setup').set(s.auth);
+  if (setup.status !== 200) throw new Error(`mfa setup failed: ${setup.status}`);
+  const secret = setup.body.secret as string;
+  const enable = await ctx
+    .http()
+    .post('/api/v1/me/mfa/enable')
+    .set(s.auth)
+    .send({ code: codeAt(secret, stepOf(Date.now())) });
+  if (enable.status !== 200) throw new Error(`mfa enable failed: ${enable.status}`);
+  return { s, secret, recoveryCodes: enable.body.recoveryCodes as string[] };
 }

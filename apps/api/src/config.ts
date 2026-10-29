@@ -21,6 +21,25 @@ export const envSchema = baseEnvSchema.extend({
     .url({ protocol: /^https?$/, error: 'must be an absolute http or https URL' })
     .refine((value) => !value.endsWith('/'), 'must not end with a slash')
     .optional(),
+  /** How often the outbox dispatcher looks for new events, in milliseconds; 0 turns it off. */
+  OUTBOX_POLL_MS: z.coerce.number().int().min(0).max(3_600_000).default(2000),
+  /** The public address of the web app: the links in emails. Required with SMTP_URL. */
+  APP_URL: z
+    .url({ protocol: /^https?$/, error: 'must be an absolute http or https URL' })
+    .optional(),
+  /** Outgoing mail, optional: smtp:// or smtps:// with credentials. Without it, notifications stay in the app. */
+  SMTP_URL: z
+    .string()
+    .regex(/^smtps?:\/\//, 'must be an smtp:// or smtps:// URL')
+    .optional(),
+  MAIL_FROM: z.string().min(3).optional(),
+  /** 32 random bytes, base64 (openssl rand -base64 32). Encrypts two-step sign-in secrets and organization credentials; without it neither can be stored. */
+  SECRETS_KEY: z.string().min(1).optional(),
+  /** The key before a rotation: values made with it can still be read until they are written again. */
+  SECRETS_KEY_PREVIOUS: z.string().min(1).optional(),
+  /** A platform-wide Anthropic key for AI writing; an organization can store its own instead. Without either, AI writing says it is not set up. */
+  ANTHROPIC_API_KEY: z.string().min(10).optional(),
+  AI_MODEL: z.string().min(3).default('claude-sonnet-5-5'),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce
     .number()

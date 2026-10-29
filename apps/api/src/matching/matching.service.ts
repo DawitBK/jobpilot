@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createApplication } from '../applications/lifecycle.js';
+import { roomFor } from '../billing/quota.js';
+import { enqueue } from '../common/audit.js';
 import type { Tx } from '../db/db.module.js';
 import {
   applications,
@@ -90,6 +92,10 @@ export class MatchingService {
   ): Promise<number> {
     const candidates = await this.candidateFacts(tx, organizationId, profileIds);
     let written = 0;
+    // The plan limits how many applications open each month. The match is always saved; when the
+    // limit is reached the application is simply not opened, and the owner is told once.
+    let room = await roomFor(tx, organizationId, 'applications');
+    let held = 0;
     for (const job of jobRows) {
       for (const { profile, facts } of candidates) {
         const result = scoreJob(facts, jobFacts(job));
@@ -103,7 +109,10 @@ export class MatchingService {
             .where(
               and(eq(applications.candidateProfileId, profile.id), eq(applications.jobId, job.id)),
             );
-          if (!existing && job.status === 'ACTIVE') {
+          if (!existing && job.status === 'ACTIVE' && room !== null && room <= 0) {
+            held += 1;
+          } else if (!existing && job.status === 'ACTIVE') {
+            if (room !== null) room -= 1;
             await createApplication(tx, {
               organizationId,
               candidateProfileId: profile.id,
@@ -114,6 +123,9 @@ export class MatchingService {
           }
         }
       }
+    }
+    if (held > 0) {
+      await enqueue(tx, organizationId, 'quota.reached', { resource: 'applications', held });
     }
     return written;
   }

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { conflict, notFound, ProblemException, toPage, unprocessable } from '@jobpilot/kit';
 import { and, asc, count, desc, eq, gte, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { assertWithinQuota } from '../billing/quota.js';
 import { enqueue, recordAudit } from '../common/audit.js';
 import type { Principal } from '../common/auth.js';
 import { escapeLike, pgCode, versionConflict } from '../common/errors.js';
@@ -271,6 +272,7 @@ export class JobsService {
             pollIntervalMinutes: input.pollIntervalMinutes,
           })
           .returning();
+        await assertWithinQuota(tx, p.organizationId, 'sources', true);
         const dto = toSourceDto(row!);
         await recordAudit(tx, {
           organizationId: p.organizationId,

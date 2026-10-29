@@ -11,6 +11,7 @@ import {
 } from '@jobpilot/kit';
 import argon2 from 'argon2';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { assertWithinQuota } from '../billing/quota.js';
 import { enqueue, recordAudit } from '../common/audit.js';
 import { AUTH_CONFIG, type AuthConfig, type Principal, TokenService } from '../common/auth.js';
 import { forbidden, pgCode, unauthorized } from '../common/errors.js';
@@ -27,6 +28,8 @@ import {
   type UserRow,
 } from '../db/schema.js';
 import { TenantDb } from '../db/tenant.js';
+import { MfaService } from './mfa.service.js';
+import type { MfaChallenge, MfaLogin } from './mfa.contract.js';
 import { fullNameFrom, hasAccessFromIdp, type SsoAccess } from './sso-access.js';
 import type {
   AddMember,
@@ -100,6 +103,7 @@ export class AuthService {
     @Inject(TenantDb) private readonly tenant: TenantDb,
     @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
+    @Inject(MfaService) private readonly mfa: MfaService,
   ) {}
 
   /** Create an account and its personal workspace, where the person is both the owner and the candidate. */
@@ -120,7 +124,7 @@ export class AuthService {
     }
   }
 
-  async login(input: Login): Promise<TokenPair | OrganizationChoice> {
+  async login(input: Login): Promise<TokenPair | OrganizationChoice | MfaChallenge> {
     assertNotLocked(input.email);
     const [user] = await this.tenant.global((tx) =>
       tx.select().from(users).where(eq(users.email, input.email)),
@@ -132,7 +136,36 @@ export class AuthService {
       loginFailures.recordFailure(input.email);
       throw unauthorized('Email or password is incorrect');
     }
+    if (this.mfa.isEnabled(user)) {
+      // The failure count is NOT cleared here: only a finished sign-in clears it, so guessing the code is limited too.
+      return { mfaRequired: true, mfaToken: await this.tokens.signMfaToken(user.id) };
+    }
     loginFailures.reset(input.email);
+    return this.continueSignIn(user);
+  }
+
+  /** The second step of sign-in for an account with two-step sign-in on: a current code, or a recovery code. */
+  async loginWithMfa(input: MfaLogin): Promise<TokenPair | OrganizationChoice> {
+    const userId = await this.tokens.verifyMfaToken(input.mfaToken);
+    const [user] = await this.tenant.global((tx) =>
+      tx.select().from(users).where(eq(users.id, userId)),
+    );
+    if (!user || user.status !== 'ACTIVE' || !this.mfa.isEnabled(user))
+      throw unauthorized('The sign-in step is not valid');
+    assertNotLocked(user.email);
+    const ok = await this.mfa.checkSecondFactor(user, {
+      code: input.code,
+      recoveryCode: input.recoveryCode,
+    });
+    if (!ok) {
+      loginFailures.recordFailure(user.email);
+      throw unauthorized('That code is not right');
+    }
+    loginFailures.reset(user.email);
+    return this.continueSignIn(user);
+  }
+
+  private async continueSignIn(user: UserRow): Promise<TokenPair | OrganizationChoice> {
     let memberships = await this.tenant.asUser(user.id, (tx) => this.membershipsOf(tx, user.id));
     if (memberships.length === 0) {
       // Someone removed from every organization still gets a workspace of their own to land in.
@@ -172,9 +205,15 @@ export class AuthService {
    * With it, the provider decides whether they may use JobPilot at all: without the `member` role they are refused (403); with it the account
    * and the person's own workspace are created at the first sign-in when missing. A person suspended here is still refused.
    */
-  async loginWithVerifiedEmail(email: string, subject: string, access?: SsoAccess): Promise<TokenPair> {
+  async loginWithVerifiedEmail(
+    email: string,
+    subject: string,
+    access?: SsoAccess,
+  ): Promise<TokenPair> {
     if (access && !hasAccessFromIdp(access.roles)) {
-      throw forbidden('You have not been given access to JobPilot. Ask an administrator to give you a role in the identity provider.');
+      throw forbidden(
+        'You have not been given access to JobPilot. Ask an administrator to give you a role in the identity provider.',
+      );
     }
     const find = () =>
       this.tenant.global((tx) => tx.select().from(users).where(eq(users.email, email)));
@@ -366,6 +405,8 @@ export class AuthService {
         }
         throw e;
       }
+      // Counted after the insert, in the same transaction: over the limit rolls the new member back.
+      await assertWithinQuota(tx, p.organizationId, 'members', true);
       await recordAudit(tx, {
         organizationId: p.organizationId,
         actorUserId: p.userId,
@@ -416,6 +457,9 @@ export class AuthService {
         .update(organizationMembers)
         .set({ roleId, status: input.status ?? member.status })
         .where(eq(organizationMembers.id, memberId));
+      if (member.status === 'REMOVED' && input.status === 'ACTIVE') {
+        await assertWithinQuota(tx, p.organizationId, 'members', true);
+      }
       if (input.status === 'REMOVED') {
         // Their sessions in this organization end now, not at the next refresh.
         await tx

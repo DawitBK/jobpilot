@@ -103,6 +103,11 @@ export const users = pgTable(
     ssoSubject: text('sso_subject'),
     /** The platform administrator's account: in no member list and out of reach of every other user (answers like an id that was never there). */
     platformAdmin: boolean('platform_admin').notNull().default(false),
+    /** AES-256-GCM ciphertext of the TOTP secret; set when enrolment starts, usable only once `totpEnabledAt` is set. */
+    totpSecretEnc: text('totp_secret_enc'),
+    totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
+    /** The last accepted 30-second step: a code cannot be used twice. */
+    totpLastStep: bigint('totp_last_step', { mode: 'number' }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -129,6 +134,11 @@ export const organizations = pgTable(
     ownerUserId: uuid('owner_user_id')
       .notNull()
       .references(() => users.id),
+    /** Review rules (see policy.ts); empty means the defaults. */
+    policy: jsonb('policy')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('organizations_slug_uq').on(t.slug)],
@@ -226,10 +236,54 @@ export const outboxEvents = pgTable(
       .notNull()
       .default('PENDING'),
     attempts: integer('attempts').notNull().default(0),
+    /** Not tried again before this time: failed deliveries back off instead of spinning. */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
     createdAt: createdAt(),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
   },
-  (t) => [index('outbox_pending_idx').on(t.status, t.createdAt)],
+  (t) => [index('outbox_pending_idx').on(t.status, t.nextAttemptAt, t.id)],
+);
+
+export const NOTIFICATION_KINDS = [
+  'WELCOME',
+  'NEW_MATCH',
+  'APPROVAL_NEEDED',
+  'APPLICATION_UPDATE',
+  'NEEDS_REVIEW',
+  'JOBS_FOUND',
+  'SECURITY',
+  'PLAN',
+] as const;
+
+/** A message for one person inside one organization, made from an outbox event by the dispatcher. */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: id(),
+    organizationId: orgId().references(() => organizations.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    kind: text('kind', { enum: NOTIFICATION_KINDS }).notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull().default(''),
+    /** A path inside the web app. */
+    link: text('link'),
+    eventId: bigint('event_id', { mode: 'number' }),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    emailStatus: text('email_status', { enum: ['NOT_SENT', 'SENT', 'FAILED', 'SKIPPED'] })
+      .notNull()
+      .default('NOT_SENT'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check('notifications_link_local', sql`${t.link} is null or ${t.link} ~ '^/'`),
+    uniqueIndex('notifications_event_user_uq')
+      .on(t.eventId, t.userId)
+      .where(sql`${t.eventId} is not null`),
+    index('notifications_user_idx').on(t.userId, t.createdAt),
+  ],
 );
 
 // ---------------------------------------------------------------- career graph
@@ -568,6 +622,117 @@ export const applicationEvents = pgTable(
     ),
     index('application_events_app_idx').on(t.applicationId, t.createdAt),
   ],
+);
+
+export const DOCUMENT_KINDS = ['RESUME', 'COVER_LETTER'] as const;
+export const EMAIL_CLASSES = [
+  'INTERVIEW_INVITE',
+  'ASSESSMENT',
+  'OFFER',
+  'REJECTION',
+  'RECEIPT',
+  'OTHER',
+] as const;
+export type EmailClass = (typeof EMAIL_CLASSES)[number];
+
+/** A generated resume or cover letter; every claim in it carries a verdict and the evidence behind it. */
+export const applicationDocuments = pgTable(
+  'application_documents',
+  {
+    id: id(),
+    organizationId: orgId().references(() => organizations.id),
+    applicationId: uuid('application_id')
+      .notNull()
+      .references(() => applications.id),
+    kind: text('kind', { enum: DOCUMENT_KINDS }).notNull(),
+    version: integer('version').notNull(),
+    content: text('content').notNull(),
+    claims: jsonb('claims')
+      .$type<unknown[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    verdicts: jsonb('verdicts')
+      .$type<Record<string, number>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    redactions: integer('redactions').notNull().default(0),
+    needsReview: boolean('needs_review').notNull().default(false),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check('application_documents_kind', inList(t.kind, DOCUMENT_KINDS)),
+    uniqueIndex('application_documents_uq').on(t.applicationId, t.kind, t.version),
+    index('application_documents_org_month_idx').on(t.organizationId, t.createdAt),
+  ],
+);
+
+/** An email from an employer, logged against an application and classified; moving the application is a person's decision. */
+export const applicationEmails = pgTable(
+  'application_emails',
+  {
+    id: id(),
+    organizationId: orgId().references(() => organizations.id),
+    applicationId: uuid('application_id')
+      .notNull()
+      .references(() => applications.id),
+    fromAddress: text('from_address').notNull(),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    classification: text('classification', { enum: EMAIL_CLASSES }).notNull(),
+    confidence: numeric('confidence', { precision: 4, scale: 2 }).notNull(),
+    signals: text('signals')
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    suggestedState: text('suggested_state', { enum: APPLICATION_STATES }),
+    status: text('status', { enum: ['NEW', 'ACTED', 'DISMISSED'] })
+      .notNull()
+      .default('NEW'),
+    decidedBy: uuid('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check('application_emails_classification', inList(t.classification, EMAIL_CLASSES)),
+    index('application_emails_app_idx').on(t.applicationId, t.createdAt),
+  ],
+);
+
+/** One-time codes that stand in for the authenticator app; only a hash is stored. */
+export const mfaRecoveryCodes = pgTable(
+  'mfa_recovery_codes',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    codeHash: text('code_hash').notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('mfa_recovery_codes_hash_uq').on(t.userId, t.codeHash)],
+);
+
+/** An organization's own credentials, encrypted; the API never returns a value, only that one is set. */
+export const organizationSecrets = pgTable(
+  'organization_secrets',
+  {
+    id: id(),
+    organizationId: orgId().references(() => organizations.id),
+    name: text('name').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+    /** The last four characters, so a person can tell which key is stored without it being readable. */
+    hint: text('hint').notNull(),
+    createdBy: uuid('created_by'),
+    createdAt: createdAt(),
+    rotatedAt: timestamp('rotated_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('organization_secrets_uq').on(t.organizationId, t.name)],
 );
 
 export type UserRow = typeof users.$inferSelect;

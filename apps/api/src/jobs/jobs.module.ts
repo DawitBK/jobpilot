@@ -1,9 +1,23 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import {
+  AnthropicProvider,
+  AI_PROVIDER_FACTORY,
+  AI_SETTINGS,
+  type AiProviderFactory,
+  type AiSettings,
+} from '../ai/provider.js';
+import { DocumentsService } from '../ai/documents.service.js';
+import {
+  ApplicationExtrasController,
+  PolicyController,
+} from '../applications/application-extras.controller.js';
 import { ApplicationsController } from '../applications/applications.controller.js';
 import { ApplicationsService } from '../applications/applications.service.js';
 import { CandidatesController } from '../candidates/candidates.controller.js';
 import { CandidatesService } from '../candidates/candidates.service.js';
+import { EmailsService } from '../emails/emails.service.js';
 import { MatchingService } from '../matching/matching.service.js';
+import { PolicyService } from '../policy/policy.service.js';
 import { HttpJobFeedFetcher, JOB_FEED_FETCHER, type JobFeedFetcher } from './feeds.js';
 import { JobsController } from './jobs.controller.js';
 import { JobsService } from './jobs.service.js';
@@ -15,15 +29,33 @@ import { JobsService } from './jobs.service.js';
 @Module({})
 export class JobsModule {
   /** Pass a fetcher to replace real network access (the integration tests do). */
-  static register(fetcher?: JobFeedFetcher): DynamicModule {
+  static register(
+    fetcher: JobFeedFetcher | undefined,
+    ai: { settings: AiSettings; factory?: AiProviderFactory },
+  ): DynamicModule {
     return {
       module: JobsModule,
-      controllers: [JobsController, CandidatesController, ApplicationsController],
+      controllers: [
+        JobsController,
+        CandidatesController,
+        ApplicationsController,
+        ApplicationExtrasController,
+        PolicyController,
+      ],
       providers: [
         JobsService,
         CandidatesService,
         ApplicationsService,
         MatchingService,
+        PolicyService,
+        DocumentsService,
+        EmailsService,
+        { provide: AI_SETTINGS, useValue: ai.settings },
+        {
+          provide: AI_PROVIDER_FACTORY,
+          useValue:
+            ai.factory ?? ((apiKey: string) => new AnthropicProvider(apiKey, ai.settings.model)),
+        },
         { provide: JOB_FEED_FETCHER, useValue: fetcher ?? new HttpJobFeedFetcher() },
       ],
     };

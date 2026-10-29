@@ -15,7 +15,9 @@ describe('hasAccessFromIdp', () => {
 
 describe('fullNameFrom', () => {
   it("uses the provider's name, trimmed, and never leaves the name empty", () => {
-    expect(fullNameFrom({ roles: [], fullName: ' Abebe Kebede ' }, 'a@b.test')).toBe('Abebe Kebede');
+    expect(fullNameFrom({ roles: [], fullName: ' Abebe Kebede ' }, 'a@b.test')).toBe(
+      'Abebe Kebede',
+    );
     expect(fullNameFrom({ roles: [] }, 'abebe.k@jobs.test')).toBe('abebe.k');
     expect(fullNameFrom({ roles: [], fullName: '   ' }, 'abebe@jobs.test')).toBe('abebe');
   });

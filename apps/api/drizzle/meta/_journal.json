@@ -29,6 +29,27 @@
       "when": 1792616051807,
       "tag": "0003_sso_subject_and_platform_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0004_outbox_dispatch_and_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793000001000,
+      "tag": "0005_documents_and_emails",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793000002000,
+      "tag": "0006_mfa_secrets_policy",
+      "breakpoints": true
     }
   ]
 }

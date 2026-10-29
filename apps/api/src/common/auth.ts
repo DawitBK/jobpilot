@@ -54,6 +54,7 @@ export const CurrentUser = createParamDecorator(
 
 const ACCESS_TYPE = 'at+jwt';
 const SELECTION_TYPE = 'org-selection+jwt';
+const MFA_TYPE = 'mfa-challenge+jwt';
 
 @Injectable()
 export class TokenService {
@@ -80,6 +81,30 @@ export class TokenService {
       .setIssuedAt()
       .setExpirationTime('5m')
       .sign(this.key);
+  }
+
+  /** Short-lived proof that the password was right; good only for presenting the second factor. */
+  async signMfaToken(userId: string): Promise<string> {
+    return new SignJWT({})
+      .setProtectedHeader({ alg: 'HS256', typ: MFA_TYPE })
+      .setSubject(userId)
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(this.key);
+  }
+
+  async verifyMfaToken(token: string): Promise<string> {
+    try {
+      const { payload, protectedHeader } = await jwtVerify(token, this.key, {
+        algorithms: ['HS256'],
+      });
+      if (protectedHeader.typ !== MFA_TYPE || typeof payload.sub !== 'string') {
+        throw new Error('wrong token type');
+      }
+      return payload.sub;
+    } catch {
+      throw unauthorized('The sign-in step has expired; start again');
+    }
   }
 
   async verifySelectionToken(token: string): Promise<string> {

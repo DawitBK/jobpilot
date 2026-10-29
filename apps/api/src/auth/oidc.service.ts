@@ -184,8 +184,12 @@ export class OidcService {
     const roles = appRolesClaim(claims['app_roles'] ?? info.app_roles);
     const fullName =
       (typeof info.name === 'string' ? info.name : '').trim() ||
-      [info.given_name, info.family_name].filter((n) => typeof n === 'string' && n.trim() !== '').join(' ');
-    const access: SsoAccess | undefined = roles ? { roles, ...(fullName ? { fullName } : {}) } : undefined;
+      [info.given_name, info.family_name]
+        .filter((n) => typeof n === 'string' && n.trim() !== '')
+        .join(' ');
+    const access: SsoAccess | undefined = roles
+      ? { roles, ...(fullName ? { fullName } : {}) }
+      : undefined;
     const email = info.email.trim().toLowerCase();
     return access
       ? this.auth.loginWithVerifiedEmail(email, info.sub, access)

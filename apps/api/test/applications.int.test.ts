@@ -4,6 +4,7 @@ import {
   closeContext,
   joinAs,
   makeJob,
+  myProfile,
   signUp,
   startContext,
   type Session,
@@ -18,10 +19,22 @@ afterAll(async () => {
   await closeContext(ctx);
 });
 
+/**
+ * A realistic start: the candidate has the skill the job asks for, so the matcher scores it APPLY and opens the
+ * application itself (the review policy would ask for an acknowledgement on a poor match, which other tests cover).
+ */
 async function startApplication(s: Session) {
+  const profile = await myProfile(ctx, s);
+  await ctx
+    .http()
+    .post(`/api/v1/candidates/${profile.id}/skills`)
+    .set(s.auth)
+    .send({ skillName: 'typescript' });
   const job = await makeJob(ctx, s);
-  const res = await ctx.http().post('/api/v1/applications').set(s.auth).send({ jobId: job.id });
-  expect(res.status).toBe(201);
+  const list = await ctx.http().get(`/api/v1/applications?jobId=${job.id}`).set(s.auth);
+  expect(list.body.items).toHaveLength(1);
+  const res = await ctx.http().get(`/api/v1/applications/${list.body.items[0].id}`).set(s.auth);
+  expect(res.status).toBe(200);
   return res.body as { id: string; state: string; allowedNext: string[] };
 }
 const move = (s: Session, id: string, to: string, note?: string) =>
@@ -71,7 +84,10 @@ describe('the application state machine', () => {
       'OFFER',
       'ACCEPTED',
     ]);
-    expect(done.events.every((e: { actorType: string }) => e.actorType === 'USER')).toBe(true);
+    // The matcher found it (SYSTEM); every step after that was the person's own.
+    const actors = done.events.map((e: { actorType: string }) => e.actorType);
+    expect(actors.slice(0, 2)).toEqual(['SYSTEM', 'SYSTEM']);
+    expect(actors.slice(2).every((a: string) => a === 'USER')).toBe(true);
 
     // Every step announced itself for the asynchronous side and is in the tamper-evident trail.
     const outbox = await ctx.owner.query(

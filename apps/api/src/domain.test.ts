@@ -349,7 +349,14 @@ describe('OpenAPI document', () => {
   });
 
   it('marks every non-public route as needing a bearer token', () => {
-    const open = new Set(['register', 'login', 'selectOrganization', 'refresh', 'logout']);
+    const open = new Set([
+      'register',
+      'login',
+      'loginMfa',
+      'selectOrganization',
+      'refresh',
+      'logout',
+    ]);
     for (const op of operations) {
       expect(op.security !== undefined, op.operationId).toBe(!open.has(op.operationId));
     }

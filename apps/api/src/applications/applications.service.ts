@@ -2,6 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { conflict, notFound, ProblemException, toPage, unprocessable } from '@jobpilot/kit';
 import { and, asc, count, desc, eq, sql, type SQL } from 'drizzle-orm';
 import type { Principal } from '../common/auth.js';
+import { assertWithinQuota } from '../billing/quota.js';
+import { PolicyService } from '../policy/policy.service.js';
 import { pgCode } from '../common/errors.js';
 import type { Tx } from '../db/db.module.js';
 import {
@@ -44,6 +46,7 @@ export class ApplicationsService {
   constructor(
     @Inject(TenantDb) private readonly tenant: TenantDb,
     @Inject(CandidatesService) private readonly candidates: CandidatesService,
+    @Inject(PolicyService) private readonly policy: PolicyService,
   ) {}
 
   /** Start an application by hand. The candidate is you, unless you manage candidates for others. */
@@ -71,6 +74,7 @@ export class ApplicationsService {
           jobId: input.jobId,
           actor: { type: 'USER', userId: p.userId },
         });
+        await assertWithinQuota(tx, p.organizationId, 'applications', true);
         return this.detail(tx, p, created.id);
       } catch (e) {
         if (pgCode(e) === '23505') {
@@ -140,7 +144,7 @@ export class ApplicationsService {
   }
 
   /** Approve an application that is ready to apply. Only a person can, and it records who and when. */
-  async approve(p: Principal, id: string): Promise<ApplicationDetailDto> {
+  async approve(p: Principal, id: string, acknowledgeRisks = false): Promise<ApplicationDetailDto> {
     return this.tenant.inTenant(p, async (tx) => {
       const app = await this.mustSee(tx, p, id);
       if (app.state !== 'READY_TO_APPLY' && app.state !== 'NEEDS_HUMAN_REVIEW') {
@@ -151,9 +155,26 @@ export class ApplicationsService {
           `This one is ${app.state}`,
         );
       }
+      // The review the person was shown: a high-risk application needs them to say they have read the reasons.
+      const review = await this.policy.evaluate(tx, app);
+      if (review.requiresAcknowledgement && !acknowledgeRisks) {
+        throw new ProblemException(
+          409,
+          'risk-acknowledgement-required',
+          'Read the review before approving',
+          review.reasons.map((r) => r.text).join(' '),
+          { tier: review.tier, reasons: review.reasons },
+        );
+      }
       await transition(tx, p.organizationId, id, 'APPROVED', {
         actor: { type: 'USER', userId: p.userId },
         eventType: 'application.approved',
+        payload: {
+          policyTier: review.tier,
+          ...(review.reasons.length
+            ? { acknowledgedReasons: review.reasons.map((r) => r.text) }
+            : {}),
+        },
       });
       return this.detail(tx, p, id);
     });
@@ -162,7 +183,7 @@ export class ApplicationsService {
   // ---------- helpers ----------
 
   /** The application if this person may see it (a candidate sees only their own), else a plain 404. */
-  private async mustSee(tx: Tx, p: Principal, id: string): Promise<ApplicationRow> {
+  async mustSee(tx: Tx, p: Principal, id: string): Promise<ApplicationRow> {
     const [row] = await tx
       .select({ a: applications, owner: candidateProfiles.userId })
       .from(applications)

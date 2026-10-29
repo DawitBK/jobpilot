@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@ne
 import { ZodValidationPipe } from '@jobpilot/kit';
 import { CurrentUser, RequirePermission, type Principal } from '../common/auth.js';
 import {
+  approveSchema,
   createApplicationSchema,
   idParamsSchema,
   listApplicationsQuerySchema,
@@ -56,7 +57,11 @@ export class ApplicationsController {
   @RequirePermission('applications:approve')
   @Post(':id/approve')
   @HttpCode(200)
-  approve(@CurrentUser() p: Principal, @Param(idParams) params: { id: string }) {
-    return this.applications.approve(p, params.id);
+  approve(
+    @CurrentUser() p: Principal,
+    @Param(idParams) params: { id: string },
+    @Body(new ZodValidationPipe(approveSchema)) body: { acknowledgeRisks?: boolean } | undefined,
+  ) {
+    return this.applications.approve(p, params.id, body?.acknowledgeRisks === true);
   }
 }

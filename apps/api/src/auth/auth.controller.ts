@@ -23,6 +23,7 @@ import {
   type UpdateOrganization,
 } from './auth.contract.js';
 import { AuthService } from './auth.service.js';
+import { mfaLoginSchema, type MfaLogin } from './mfa.contract.js';
 import { OidcService } from './oidc.service.js';
 
 @Controller('api/v1')
@@ -68,6 +69,14 @@ export class AuthController {
   @HttpCode(200)
   login(@Body(new ZodValidationPipe(loginSchema)) body: Login) {
     return this.auth.login(body);
+  }
+
+  /** The second step when the account has two-step sign-in on: the token from `auth/login` plus a code. */
+  @Public()
+  @Post('auth/mfa')
+  @HttpCode(200)
+  mfa(@Body(new ZodValidationPipe(mfaLoginSchema)) body: MfaLogin) {
+    return this.auth.loginWithMfa(body);
   }
 
   @Public()
