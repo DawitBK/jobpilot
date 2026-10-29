@@ -235,11 +235,12 @@ test.describe('documents', () => {
 
     // The key is stored through Settings, encrypted; the page never shows it back.
     await open(page, '/settings');
-    await expect(page.getByText('No key stored')).toBeVisible();
-    await page.getByLabel('Anthropic API key').fill('sk-ant-e2e-not-a-real-key-1234');
-    await page.getByRole('button', { name: 'Save the key' }).click();
-    await expect(page.getByText('A key is stored')).toBeVisible();
-    await expect(page.getByLabel(/Replace the key/)).toBeVisible();
+    await expect(page.getByText('Not set up')).toBeVisible();
+    await page.getByLabel('Provider').selectOption('groq');
+    await page.getByLabel(/^API key/).fill('gsk_e2e_not_a_real_key_1234');
+    await page.getByRole('button', { name: 'Save the connection' }).click();
+    await expect(page.getByText('groq · openai/gpt-oss-120b')).toBeVisible();
+    await expect(page.getByLabel(/the stored one ends in 1234/)).toBeVisible();
     await expect(page.locator('body')).not.toContainText('not-a-real-key');
     await open(page, `/applications/${applicationId}`);
     await expect(
@@ -250,15 +251,15 @@ test.describe('documents', () => {
     page.on('dialog', (d) => void d.accept());
     await open(page, '/settings');
     await page.getByRole('button', { name: 'Remove it' }).click();
-    await expect(page.getByText('No key stored')).toBeVisible();
+    await expect(page.getByText('Not set up')).toBeVisible();
   });
 
   test('says so, in words, when the AI is asked and the key is not accepted', async ({ page }) => {
     const { person, applicationId } = await personWithApplication('Bad Key');
     await move(person.token, applicationId, 'SHORTLISTED');
-    await api('PUT', '/secrets/anthropic_api_key', {
+    await api('PUT', '/ai/connection', {
       token: person.token,
-      body: { value: 'sk-ant-e2e-not-a-real-key-9999' },
+      body: { vendor: 'groq', apiKey: 'gsk_e2e_not_a_real_key_9999' },
     });
     await signInUi(page, person.email);
     await open(page, `/applications/${applicationId}`);

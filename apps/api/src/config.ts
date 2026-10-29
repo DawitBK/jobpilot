@@ -37,9 +37,27 @@ export const envSchema = baseEnvSchema.extend({
   SECRETS_KEY: z.string().min(1).optional(),
   /** The key before a rotation: values made with it can still be read until they are written again. */
   SECRETS_KEY_PREVIOUS: z.string().min(1).optional(),
-  /** A platform-wide Anthropic key for AI writing; an organization can store its own instead. Without either, AI writing says it is not set up. */
-  ANTHROPIC_API_KEY: z.string().min(10).optional(),
-  AI_MODEL: z.string().min(3).default('claude-sonnet-5-5'),
+  /**
+   * The server's own AI connection, used when an organization saved none. Same names as DMS: AI_PROVIDER forces a vendor
+   * (groq, openai, anthropic, custom); otherwise the first of GROQ_API_KEY, OPENAI_API_KEY, AI_BASE_URL + AI_API_KEY
+   * (any OpenAI-compatible endpoint) and ANTHROPIC_API_KEY that is set. Without any, AI writing says it is not set up.
+   */
+  AI_PROVIDER: z.enum(['groq', 'openai', 'anthropic', 'custom']).optional(),
+  GROQ_API_KEY: z.string().min(8).optional(),
+  GROQ_MODEL: z.string().min(2).optional(),
+  OPENAI_API_KEY: z.string().min(8).optional(),
+  OPENAI_MODEL: z.string().min(2).optional(),
+  OPENAI_BASE_URL: z.url().optional(),
+  AI_BASE_URL: z.url().optional(),
+  AI_API_KEY: z.string().min(8).optional(),
+  AI_MODEL: z.string().min(2).optional(),
+  ANTHROPIC_API_KEY: z.string().min(8).optional(),
+  ANTHROPIC_MODEL: z.string().min(2).optional(),
+  /** Let an organization point at a private address (a local Ollama or vLLM). Only for a server that is yours alone. */
+  AI_ALLOW_PRIVATE_URLS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce
     .number()

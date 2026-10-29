@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Badge, Notice, PageHeader } from '@/components/ui';
 import { api, apiOrNull, requireMe } from '@/lib/server-api';
-import type { PolicySettings, SecretInfo } from '@/lib/types';
+import type { AiConnectionView, PolicySettings } from '@/lib/types';
 import { AiKeyForm, PolicyForm } from './settings-forms';
 
 export const metadata: Metadata = { title: 'Settings', robots: { index: false } };
@@ -11,8 +11,7 @@ export default async function SettingsPage() {
   const canKeys = me.permissions.includes('ai_config:manage');
   const canPolicy = me.permissions.includes('organizations:manage');
   const policy = await api<PolicySettings>('/organization/policy');
-  const secrets = canKeys ? ((await apiOrNull<SecretInfo[]>('/secrets')) ?? []) : [];
-  const key = secrets.find((s) => s.name === 'anthropic_api_key') ?? null;
+  const connection = canKeys ? await apiOrNull<AiConnectionView>('/ai/connection') : null;
   return (
     <>
       <PageHeader title="Settings" subtitle={me.organization.name} />
@@ -20,17 +19,21 @@ export default async function SettingsPage() {
         <section className="card space-y-3 p-4" aria-label="AI writing">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">AI writing</h2>
-            <Badge tone={key ? 'good' : 'neutral'}>
-              {key ? 'A key is stored' : 'No key stored'}
+            <Badge tone={connection?.configured ? 'good' : 'neutral'}>
+              {connection?.configured
+                ? `${connection.vendor} · ${connection.model}${connection.source === 'server' ? ' (server default)' : ''}`
+                : 'Not set up'}
             </Badge>
           </div>
           <p className="text-sm text-muted">
             JobPilot can draft a resume and a cover letter with an AI model, then checks every
-            sentence against the candidate&rsquo;s own record. Without a key you can still write
-            them yourself. The key is stored encrypted and is never shown again.
+            sentence against the candidate&rsquo;s own record. Use any provider: Groq, OpenAI,
+            Anthropic, or any service that speaks the OpenAI chat protocol (OpenRouter, Together, a
+            local model). Without one you can still write them yourself. The key is stored encrypted
+            and is never shown again.
           </p>
           {canKeys ? (
-            <AiKeyForm hint={key?.hint ?? null} />
+            <AiKeyForm current={connection} />
           ) : (
             <Notice>Only an owner or administrator can change this.</Notice>
           )}

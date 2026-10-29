@@ -7,7 +7,7 @@ import { envSchema } from '../src/config.js';
 import { codeAt, stepOf } from '../src/auth/totp.js';
 import { createApp } from '../src/create-app.js';
 import type { JobFeedFetcher } from '../src/jobs/feeds.js';
-import type { AiProvider, AiRequest } from '../src/ai/provider.js';
+import type { AiConnection, AiProvider, AiRequest } from '../src/ai/provider.js';
 import type { Mailer, MailMessage } from '../src/outbox/mailer.js';
 import { OutboxDispatcher } from '../src/outbox/outbox.dispatcher.js';
 
@@ -43,15 +43,17 @@ export class CaptureMailer implements Mailer {
  */
 export class FakeAi {
   readonly keys: string[] = [];
+  readonly connections: AiConnection[] = [];
   readonly requests: AiRequest[] = [];
   reply: (request: AiRequest) => string = () =>
     JSON.stringify({ content: 'Nothing to say.', claims: [] });
   fail: Error | null = null;
-  readonly factory = (apiKey: string): AiProvider => ({
+  readonly factory = (connection: AiConnection): AiProvider => ({
     name: 'fake',
     model: 'fake-model-1',
     complete: async (request) => {
-      this.keys.push(apiKey);
+      this.keys.push(connection.apiKey);
+      this.connections.push(connection);
       this.requests.push(request);
       if (this.fail) throw this.fail;
       return { text: this.reply(request), model: 'fake-model-1' };

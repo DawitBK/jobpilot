@@ -5,10 +5,8 @@ import {
   enrolMfa,
   joinAs,
   PASSWORD,
-  signIn,
   signUp,
   startContext,
-  type Session,
   type TestContext,
 } from './helpers.js';
 
@@ -189,55 +187,5 @@ describe('two-step sign-in', () => {
     await ctx.dispatch();
     const inbox = await ctx.http().get('/api/v1/notifications').set(s.auth);
     expect(inbox.body.items.some((n: { kind: string }) => n.kind === 'SECURITY')).toBe(true);
-  });
-});
-
-describe("an organization's stored credentials", () => {
-  const put = (s: Session, value: string) =>
-    ctx.http().put('/api/v1/secrets/anthropic_api_key').set(s.auth).send({ value });
-
-  it('stores a key encrypted, shows only its last four characters, and can remove it', async () => {
-    const owner = await signUp(ctx, 'Key Owner');
-    expect((await put(owner, 'sk-ant-test-key-abcd1234')).status).toBe(204);
-    const list = await ctx.http().get('/api/v1/secrets').set(owner.auth);
-    expect(list.body).toHaveLength(1);
-    expect(list.body[0]).toMatchObject({ name: 'anthropic_api_key', hint: '1234' });
-    expect(JSON.stringify(list.body)).not.toContain('sk-ant');
-    const stored = (
-      await ctx.owner.query(
-        'select ciphertext from organization_secrets where organization_id = $1',
-        [owner.organizationId],
-      )
-    ).rows[0];
-    expect(stored.ciphertext).not.toContain('sk-ant');
-    expect((await put(owner, 'sk-ant-test-key-zzzz9999')).status).toBe(204);
-    expect((await ctx.http().get('/api/v1/secrets').set(owner.auth)).body[0].hint).toBe('9999');
-    expect(
-      (await ctx.http().delete('/api/v1/secrets/anthropic_api_key').set(owner.auth)).status,
-    ).toBe(204);
-    expect(
-      (await ctx.http().delete('/api/v1/secrets/anthropic_api_key').set(owner.auth)).status,
-    ).toBe(404);
-  });
-
-  it('is for people who manage AI settings, is private to the organization, and takes only known names', async () => {
-    const owner = await signUp(ctx, 'Vault Owner');
-    const recruiter = await joinAs(ctx, owner, await signUp(ctx, 'Vault Recruiter'), 'RECRUITER');
-    expect((await put(recruiter, 'sk-ant-test-key-abcd1234')).status).toBe(403);
-    expect((await ctx.http().get('/api/v1/secrets').set(recruiter.auth)).status).toBe(403);
-    await put(owner, 'sk-ant-test-key-abcd1234');
-    const stranger = await signUp(ctx, 'Vault Stranger');
-    expect((await ctx.http().get('/api/v1/secrets').set(stranger.auth)).body).toEqual([]);
-    expect(
-      (
-        await ctx
-          .http()
-          .put('/api/v1/secrets/database_password')
-          .set(owner.auth)
-          .send({ value: 'whatever-value' })
-      ).status,
-    ).toBe(400);
-    expect((await put(owner, 'short')).status).toBe(400);
-    expect(await signIn(ctx, owner.email)).toBeTruthy();
   });
 });

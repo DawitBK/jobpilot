@@ -264,7 +264,56 @@ const STOP = new Set([
   'Of',
   'To',
   'JobPilot',
+  // Months and days are dates, not names: they are checked as dates below.
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Sept',
+  'Oct',
+  'Nov',
+  'Dec',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
 ]);
+
+const MONTH_NUMBER: Record<string, number> = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+};
+const MONTH_YEAR =
+  /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?,?\s+((?:19|20)\d{2})\b/gi;
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const mentions = (text: string, term: string) =>
@@ -288,11 +337,19 @@ export function checkableParts(text: string, vocabulary: string[]) {
     ),
   ]
     .filter((m) => !/^(\d+(?:\.\d+)?)\s*\+?\s*(years?|yrs?)$/i.test(m[0].trim()))
-    .map((m) => m[0].trim())
+    .map((m) => m[0].trim().replace(/,+$/, ''))
     .filter((n) => /\d{2,}|[%kKmM]/.test(n))
-    // A bare year ("2021") is a date, which the record states in its own form.
+    // A year ("2021") is a date: it is checked as one, below, against the dates the record holds.
     .filter((n) => !/^(19|20)\d{2}$/.test(n))
     .filter((n) => !years.some((y) => n.startsWith(String(y))));
+  const monthYears = [...text.matchAll(MONTH_YEAR)].map((m) => ({
+    label: `${m[1]} ${m[2]}`,
+    key: `${m[2]}-${String(MONTH_NUMBER[m[1]!.slice(0, 3).toLowerCase()]).padStart(2, '0')}`,
+  }));
+  const withoutMonthYears = text.replace(MONTH_YEAR, ' ');
+  const bareYears = [...withoutMonthYears.matchAll(/(?<![\w.-])((?:19|20)\d{2})(?![\w-])/g)].map(
+    (m) => m[1]!,
+  );
   const names: string[] = [];
   const sentences = text.split(/(?<=[.!?])\s+/);
   for (const sentence of sentences) {
@@ -317,13 +374,30 @@ export function checkableParts(text: string, vocabulary: string[]) {
     if (name.includes(' ')) return true;
     return sentences.some((s) => !s.trimStart().startsWith(name) && s.includes(name));
   });
-  return { terms, years, numbers, names: [...new Set(properNames)] };
+  return { terms, years, numbers, monthYears, bareYears, names: [...new Set(properNames)] };
+}
+
+/**
+ * A letter is addressed to the employer it applies to, so naming the company or the role from the posting says
+ * nothing about the candidate and is fine. What is not fine is using that name as if it were the candidate's past:
+ * "I worked at Northwind Cloud" or "At Northwind Cloud I built ..." when the record has no such job.
+ */
+function claimsPastWith(text: string, name: string): boolean {
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // "Dear hiring team at Northwind Cloud," is a greeting, not a claim about where the candidate has worked.
+  const body = text.replace(/^\s*(?:dear|hello|hi)\b[^,\n]*,\s*/i, '');
+  return new RegExp(
+    String.raw`\b(?:worked|work|working|employed|served|interned|joined|spent|previously|formerly)\b[^.!?\n]{0,60}${n}|\b(?:at|for|with|from)\s+${n}\s*(?:,\s*)?(?:I|we|where|my)\b|\bmy\s+(?:time|years?|role|experience|tenure|work)\s+(?:at|with|for)\s+${n}`,
+    'i',
+  ).test(body);
 }
 
 export function verifyClaims(
   claims: Claim[],
   facts: Fact[],
   record: CandidateRecord,
+  /** Names that come from the job posting (its company and title): allowed as the addressee, never as the candidate's past. */
+  postingNames: string[] = [],
 ): CheckedClaim[] {
   const vocabulary = [
     ...record.skills.map((s) => s.skillName),
@@ -347,7 +421,25 @@ export function verifyClaims(
     for (const name of parts.names) {
       const where = found(name);
       where.forEach((id) => evidence.add(id));
-      if (where.length === 0) missing.push(name);
+      if (where.length > 0) continue;
+      const fromPosting = postingNames.some(
+        (p) =>
+          p.toLowerCase().includes(name.toLowerCase()) ||
+          name.toLowerCase().includes(p.toLowerCase()),
+      );
+      if (fromPosting && !claimsPastWith(claim.text, name)) continue;
+      missing.push(name);
+    }
+    // Dates must be dates the record actually holds ("February 2020" needs a 2020-02 entry; "since 2018" needs a 2018).
+    for (const date of parts.monthYears) {
+      const where = facts.filter((f) => f.text.includes(date.key)).map((f) => f.id);
+      where.forEach((id) => evidence.add(id));
+      if (where.length === 0) missing.push(date.label);
+    }
+    for (const year of parts.bareYears) {
+      const where = facts.filter((f) => f.text.includes(year)).map((f) => f.id);
+      where.forEach((id) => evidence.add(id));
+      if (where.length === 0) missing.push(year);
     }
     for (const number of parts.numbers) {
       const where = facts.filter((f) => f.text.includes(number)).map((f) => f.id);

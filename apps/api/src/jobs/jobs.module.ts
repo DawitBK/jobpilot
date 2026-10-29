@@ -1,11 +1,12 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import {
-  AnthropicProvider,
+  buildProvider,
   AI_PROVIDER_FACTORY,
   AI_SETTINGS,
   type AiProviderFactory,
   type AiSettings,
 } from '../ai/provider.js';
+import { AiConnectionController, AiConnectionService } from '../ai/connection.service.js';
 import { DocumentsService } from '../ai/documents.service.js';
 import {
   ApplicationExtrasController,
@@ -41,6 +42,7 @@ export class JobsModule {
         ApplicationsController,
         ApplicationExtrasController,
         PolicyController,
+        AiConnectionController,
       ],
       providers: [
         JobsService,
@@ -53,9 +55,9 @@ export class JobsModule {
         { provide: AI_SETTINGS, useValue: ai.settings },
         {
           provide: AI_PROVIDER_FACTORY,
-          useValue:
-            ai.factory ?? ((apiKey: string) => new AnthropicProvider(apiKey, ai.settings.model)),
+          useValue: ai.factory ?? buildProvider,
         },
+        AiConnectionService,
         { provide: JOB_FEED_FETCHER, useValue: fetcher ?? new HttpJobFeedFetcher() },
       ],
     };

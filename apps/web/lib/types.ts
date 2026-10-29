@@ -250,7 +250,12 @@ export interface DocumentItem {
 export interface DocumentsResponse {
   latest: DocumentItem[];
   history: { id: string; kind: string; version: number; provider: string; createdAt: string }[];
-  ai: { available: boolean; source: 'organization' | 'server' | null; model: string };
+  ai: {
+    available: boolean;
+    source: 'organization' | 'server' | null;
+    vendor: string | null;
+    model: string | null;
+  };
 }
 
 export interface EmailItem {
@@ -272,9 +277,11 @@ export interface PolicySettings {
   salaryGapPercent: number;
   maxMissingSkills: number;
 }
-export interface SecretInfo {
-  name: string;
-  hint: string;
-  createdAt: string;
-  rotatedAt: string | null;
+export interface AiConnectionView {
+  configured: boolean;
+  source: 'organization' | 'server' | null;
+  vendor: 'groq' | 'openai' | 'anthropic' | 'custom' | null;
+  model: string | null;
+  baseUrl: string | null;
+  hint: string | null;
 }

@@ -16,7 +16,7 @@ import {
   type ApplicationState,
 } from '../db/schema.js';
 import { TenantDb } from '../db/tenant.js';
-import { SecretsStore } from '../secrets/secrets.module.js';
+import { AiConnectionService } from './connection.service.js';
 import {
   buildFacts,
   findInjectionAttempts,
@@ -34,13 +34,7 @@ import {
   type DocumentKind,
   type JobForPrompt,
 } from './prompt.js';
-import {
-  AI_PROVIDER_FACTORY,
-  AI_SETTINGS,
-  type AiProvider,
-  type AiProviderFactory,
-  type AiSettings,
-} from './provider.js';
+import { AI_PROVIDER_FACTORY, type AiProvider, type AiProviderFactory } from './provider.js';
 
 /** Where in the pipeline each kind of document may be written. */
 const WRITABLE: Record<DocumentKind, ApplicationState[]> = {
@@ -86,24 +80,26 @@ export class DocumentsService {
     @Inject(TenantDb) private readonly tenant: TenantDb,
     @Inject(ApplicationsService) private readonly applications: ApplicationsService,
     @Inject(CandidatesService) private readonly candidates: CandidatesService,
-    @Inject(SecretsStore) private readonly secrets: SecretsStore,
+    @Inject(AiConnectionService) private readonly connections: AiConnectionService,
     @Inject(AI_PROVIDER_FACTORY) private readonly makeProvider: AiProviderFactory,
-    @Inject(AI_SETTINGS) private readonly settings: AiSettings,
   ) {}
 
-  /** Whether AI writing is available to this organization, and from which key (never the key itself). */
-  async status(
-    p: Principal,
-  ): Promise<{ available: boolean; source: 'organization' | 'server' | null; model: string }> {
-    const stored = await this.tenant.inTenant(p, async (tx) => {
-      try {
-        return (await this.secrets.get(tx, p.organizationId, 'anthropic_api_key')) !== null;
-      } catch {
-        return false;
-      }
-    });
-    const source = stored ? 'organization' : this.settings.defaultApiKey ? 'server' : null;
-    return { available: source !== null, source, model: this.settings.model };
+  /** Whether AI writing is available to this organization, from where, and with which vendor and model (never the key). */
+  async status(p: Principal): Promise<{
+    available: boolean;
+    source: 'organization' | 'server' | null;
+    vendor: string | null;
+    model: string | null;
+  }> {
+    const resolved = await this.tenant.inTenant(p, (tx) =>
+      this.connections.resolve(tx, p.organizationId).catch(() => null),
+    );
+    return {
+      available: resolved !== null,
+      source: resolved?.source ?? null,
+      vendor: resolved?.connection.vendor ?? null,
+      model: resolved?.connection.model ?? null,
+    };
   }
 
   async list(
@@ -249,7 +245,10 @@ export class DocumentsService {
     const output = parseModelOutput(restorePii(answer.text, redacted.map));
 
     // 3. Check every sentence against the record, then save the result and move the application along.
-    const checked = verifyClaims(claimsFor(output.content, output.claims), facts, prepared.record);
+    const checked = verifyClaims(claimsFor(output.content, output.claims), facts, prepared.record, [
+      prepared.job.companyName,
+      prepared.job.title,
+    ]);
     const verdicts = tallyVerdicts(checked);
     if (injection.length > 0) verdicts['SUSPECTED_INJECTION'] = injection.length;
     const needsReview =
@@ -300,29 +299,18 @@ export class DocumentsService {
 
   // ------------------------------------------------------------------ helpers
 
-  /** The organization's own key first, then the server's; none at all is a plain, honest 503. */
+  /** The organization's own connection first, then the server's; none at all is a plain, honest 503. */
   private async providerFor(tx: Tx, organizationId: string): Promise<AiProvider> {
-    let key: string | null;
-    try {
-      key = await this.secrets.get(tx, organizationId, 'anthropic_api_key');
-    } catch {
-      throw new ProblemException(
-        503,
-        'secret-unreadable',
-        'The stored AI key cannot be read',
-        'It was made with a key this server no longer has. Store it again in Settings.',
-      );
-    }
-    key ??= this.settings.defaultApiKey ?? null;
-    if (!key) {
+    const resolved = await this.connections.resolve(tx, organizationId);
+    if (!resolved) {
       throw new ProblemException(
         503,
         'ai-not-configured',
         'AI writing is not set up',
-        'No AI key is stored for this organization and the server has no default. An administrator can add one in Settings; you can write the document yourself in the meantime.',
+        'No AI connection is saved for this organization and the server has no default. An administrator can add one in Settings; you can write the document yourself in the meantime.',
       );
     }
-    return this.makeProvider(key);
+    return this.makeProvider(resolved.connection);
   }
 
   private async nextVersion(tx: Tx, applicationId: string, kind: DocumentKind): Promise<number> {

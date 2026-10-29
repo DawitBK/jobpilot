@@ -3,49 +3,129 @@
 import { useState } from 'react';
 import { Field, useMutation } from '@/components/form';
 import { Notice } from '@/components/ui';
-import type { PolicySettings } from '@/lib/types';
+import type { AiConnectionView, PolicySettings } from '@/lib/types';
 
-export function AiKeyForm({ hint }: { hint: string | null }) {
+const VENDORS = [
+  { value: 'groq', label: 'Groq', model: 'openai/gpt-oss-120b' },
+  { value: 'openai', label: 'OpenAI', model: 'gpt-4o-mini' },
+  { value: 'anthropic', label: 'Anthropic', model: 'claude-sonnet-5-5' },
+  { value: 'custom', label: 'Another OpenAI-compatible service', model: '' },
+] as const;
+
+export function AiKeyForm({ current }: { current: AiConnectionView | null }) {
   const m = useMutation();
-  const [value, setValue] = useState('');
+  const [vendor, setVendor] = useState<string>(current?.vendor ?? 'groq');
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState(
+    current?.source === 'organization' ? (current.model ?? '') : '',
+  );
+  const [baseUrl, setBaseUrl] = useState(current?.baseUrl ?? '');
+  const [tested, setTested] = useState<string | null>(null);
+  const own = current?.source === 'organization';
+  const chosen = VENDORS.find((v) => v.value === vendor)!;
   return (
     <form
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await m.run('PUT', '/secrets/anthropic_api_key', { value: value.trim() });
-        if (r.ok) setValue('');
+        setTested(null);
+        const r = await m.run('PUT', '/ai/connection', {
+          vendor,
+          apiKey: apiKey.trim(),
+          ...(model.trim() ? { model: model.trim() } : {}),
+          ...(vendor === 'custom' && baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+        });
+        if (r.ok) setApiKey('');
       }}
     >
+      <Field label="Provider">
+        <select className="input" value={vendor} onChange={(e) => setVendor(e.target.value)}>
+          {VENDORS.map((v) => (
+            <option key={v.value} value={v.value}>
+              {v.label}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Field
-        label={hint ? `Replace the key (the stored one ends in ${hint})` : 'Anthropic API key'}
-        error={m.fieldErrors['value']}
+        label="Model"
+        hint={chosen.model ? `Leave empty for ${chosen.model}` : 'The model name your service uses'}
+      >
+        <input
+          className="input font-mono"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+      </Field>
+      {vendor === 'custom' ? (
+        <Field
+          label="Address of the service"
+          hint="Its base address, for example https://openrouter.ai/api/v1"
+          error={m.fieldErrors['baseUrl']}
+        >
+          <input
+            className="input font-mono"
+            type="url"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            required
+          />
+        </Field>
+      ) : null}
+      <Field
+        label={
+          own && current?.hint ? `API key (the stored one ends in ${current.hint})` : 'API key'
+        }
+        error={m.fieldErrors['apiKey']}
       >
         <input
           className="input font-mono"
           type="password"
           autoComplete="off"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
           minLength={8}
           required
         />
       </Field>
       {m.error ? <Notice tone="bad">{m.error}</Notice> : null}
-      <div className="flex gap-2">
-        <button className="btn btn-primary" disabled={m.busy || value.trim().length < 8}>
-          Save the key
+      {tested ? <Notice tone="good">{tested}</Notice> : null}
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" disabled={m.busy || apiKey.trim().length < 8}>
+          Save the connection
         </button>
-        {hint ? (
+        {current?.configured ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={m.busy}
+            onClick={async () => {
+              setTested(null);
+              const r = await m.run<{ vendor: string; model: string; milliseconds: number }>(
+                'POST',
+                '/ai/connection/test',
+                {},
+                { refresh: false },
+              );
+              if (r.ok && r.data)
+                setTested(`It works: ${r.data.model} answered in ${r.data.milliseconds} ms.`);
+            }}
+          >
+            Test it
+          </button>
+        ) : null}
+        {own ? (
           <button
             type="button"
             className="btn text-bad"
             disabled={m.busy}
             onClick={() => {
               if (
-                window.confirm('Remove the stored key? AI writing stops until a new one is saved.')
+                window.confirm(
+                  'Remove the saved connection? AI writing stops (or falls back to the server default) until a new one is saved.',
+                )
               )
-                void m.run('DELETE', '/secrets/anthropic_api_key');
+                void m.run('DELETE', '/ai/connection');
             }}
           >
             Remove it

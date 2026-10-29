@@ -69,8 +69,8 @@ const generate = (s: Session, id: string, kind: 'RESUME' | 'COVER_LETTER') =>
   ctx.http().post(`/api/v1/applications/${id}/documents/generate`).set(s.auth).send({ kind });
 const detail = async (s: Session, id: string) =>
   (await ctx.http().get(`/api/v1/applications/${id}`).set(s.auth)).body;
-const storeKey = (s: Session, value = 'sk-ant-org-key-0001') =>
-  ctx.http().put('/api/v1/secrets/anthropic_api_key').set(s.auth).send({ value });
+const storeKey = (s: Session, apiKey = 'sk-test-org-key-0001', vendor = 'groq') =>
+  ctx.http().put('/api/v1/ai/connection').set(s.auth).send({ vendor, apiKey });
 
 describe('writing documents with the AI', () => {
   it('says plainly that AI writing is not set up, changes nothing, and still lets a person write it', async () => {
@@ -101,7 +101,11 @@ describe('writing documents with the AI', () => {
     ctx.ai.reply = () => GOOD;
     const resume = await generate(s, application.id, 'RESUME');
     expect(resume.status).toBe(201);
-    expect(ctx.ai.keys.at(-1)).toBe('sk-ant-org-key-0001');
+    expect(ctx.ai.keys.at(-1)).toBe('sk-test-org-key-0001');
+    expect(ctx.ai.connections.at(-1)).toMatchObject({
+      vendor: 'groq',
+      model: 'openai/gpt-oss-120b',
+    });
     expect(resume.body).toMatchObject({
       kind: 'RESUME',
       version: 1,
@@ -261,7 +265,7 @@ describe('writing documents with the AI', () => {
 
   it('passes on what the provider says went wrong, without leaking the key', async () => {
     const { s, application } = await candidateWithApplication('Rejected Key');
-    await storeKey(s, 'sk-ant-wrong-key-9999');
+    await storeKey(s, 'sk-test-wrong-key-9999');
     await shortlist(s, application.id);
     ctx.ai.fail = new ProblemException(
       502,

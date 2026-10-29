@@ -18,7 +18,7 @@ import {
   notificationPageSchema,
 } from './outbox/notifications.controller.js';
 import { policySettingsSchema } from './policy/policy.js';
-import { putSecretSchema, secretInfoSchema } from './secrets/secrets.module.js';
+import { aiConnectionInputSchema, aiConnectionViewSchema } from './ai/connection.service.js';
 import * as job from './jobs/jobs.contract.js';
 
 type Access = 'public' | 'signed-in' | string;
@@ -591,36 +591,50 @@ export function openApiDocument(): Record<string, unknown> {
       ok: none,
     },
 
-    // ---- stored credentials
+    // ---- the AI connection
     {
       access: 'ai_config:manage',
       method: 'get',
-      path: '/secrets',
-      id: 'listSecrets',
-      summary: 'Which credentials are stored (never their values)',
+      path: '/ai/connection',
+      id: 'getAiConnection',
+      summary: 'Which AI connection is in effect and where it comes from (never the key)',
       tag: 'settings',
-      ok: ok(z.array(secretInfoSchema)),
+      ok: ok(aiConnectionViewSchema),
     },
     {
       access: 'ai_config:manage',
       method: 'put',
-      path: '/secrets/{name}',
-      id: 'putSecret',
-      summary: 'Store or replace a credential, encrypted',
+      path: '/ai/connection',
+      id: 'setAiConnection',
+      summary: 'Save this organization AI connection (any vendor), encrypted',
       tag: 'settings',
-      params: z.object({ name: z.string() }),
-      body: putSecretSchema,
-      ok: none,
+      body: aiConnectionInputSchema,
+      ok: ok(aiConnectionViewSchema),
     },
     {
       access: 'ai_config:manage',
       method: 'delete',
-      path: '/secrets/{name}',
-      id: 'deleteSecret',
-      summary: 'Remove a stored credential',
+      path: '/ai/connection',
+      id: 'removeAiConnection',
+      summary: 'Remove the stored AI connection',
       tag: 'settings',
-      params: z.object({ name: z.string() }),
       ok: none,
+    },
+    {
+      access: 'ai_config:manage',
+      method: 'post',
+      path: '/ai/connection/test',
+      id: 'testAiConnection',
+      summary: 'Make a tiny real request to prove the connection works',
+      tag: 'settings',
+      ok: ok(
+        z.object({
+          ok: z.literal(true),
+          vendor: z.string(),
+          model: z.string(),
+          milliseconds: z.number(),
+        }),
+      ),
     },
 
     // ---- review policy, documents and employer emails

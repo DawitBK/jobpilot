@@ -4,7 +4,7 @@ import { applyKit } from '@jobpilot/kit';
 import type { Logger } from 'pino';
 import { AppModule } from './app.module.js';
 import type { Env } from './config.js';
-import type { AiProviderFactory } from './ai/provider.js';
+import { serverConnection, type AiProviderFactory } from './ai/provider.js';
 import type { JobFeedFetcher } from './jobs/feeds.js';
 import { NoMailer, SmtpMailer, type Mailer } from './outbox/mailer.js';
 import { SecretBox } from './secrets/secret-box.js';
@@ -46,7 +46,10 @@ export async function createApp(env: Env, options: AppOptions = {}): Promise<INe
       },
       new SecretBox(env.SECRETS_KEY, env.SECRETS_KEY_PREVIOUS),
       {
-        settings: { defaultApiKey: env.ANTHROPIC_API_KEY, model: env.AI_MODEL },
+        settings: {
+          server: serverConnection(env),
+          allowPrivateBaseUrls: env.AI_ALLOW_PRIVATE_URLS,
+        },
         factory: options.aiProviderFactory,
       },
     ),
