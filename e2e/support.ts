@@ -169,3 +169,34 @@ export function totp(secret: string, stepsAhead = 0): string {
     mac[offset + 3]!;
   return String(code % 1_000_000).padStart(6, '0');
 }
+
+/**
+ * The recovery link mailed to `email`. The API under test writes its mail to a folder (MAIL_OUTBOX_DIR, development and CI only);
+ * this waits for the newest message to that address and returns the link in it.
+ */
+export async function recoveryLinkFor(email: string, since = Date.now() - 1000): Promise<string> {
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const dir = process.env['MAIL_OUTBOX_DIR'] ?? join(process.cwd(), '.dev-mail');
+  const safe = email.replace(/[^a-z0-9@._-]/gi, '_');
+  for (let i = 0; i < 40; i += 1) {
+    const files = (() => {
+      try {
+        return readdirSync(dir).filter((f) => f.endsWith(`-${safe}.txt`));
+      } catch {
+        return [];
+      }
+    })()
+      .map((f) => join(dir, f))
+      .filter((f) => statSync(f).mtimeMs >= since)
+      .sort();
+    for (const file of files.reverse()) {
+      const link = readFileSync(file, 'utf8').match(
+        /https?:\/\/\S+\/reset-password\?token=[\w-]+/,
+      )?.[0];
+      if (link) return link;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`no recovery mail arrived for ${email} (is MAIL_OUTBOX_DIR set for the API?)`);
+}

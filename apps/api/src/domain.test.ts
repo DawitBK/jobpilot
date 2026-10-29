@@ -356,6 +356,8 @@ describe('OpenAPI document', () => {
       'selectOrganization',
       'refresh',
       'logout',
+      'forgotPassword',
+      'resetPassword',
     ]);
     for (const op of operations) {
       expect(op.security !== undefined, op.operationId).toBe(!open.has(op.operationId));

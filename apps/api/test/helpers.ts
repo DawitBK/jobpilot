@@ -95,6 +95,18 @@ export async function startContext(): Promise<TestContext> {
     OUTBOX_POLL_MS: '0',
     // 32 bytes, fixed: the suite only needs encryption to work, not to be secret.
     SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'),
+    // The suite never inherits a developer's AI vendor keys: "AI is not set up" is a state it tests on purpose.
+    AI_PROVIDER: undefined,
+    GROQ_API_KEY: undefined,
+    GROQ_MODEL: undefined,
+    OPENAI_API_KEY: undefined,
+    OPENAI_MODEL: undefined,
+    OPENAI_BASE_URL: undefined,
+    AI_BASE_URL: undefined,
+    AI_API_KEY: undefined,
+    AI_MODEL: undefined,
+    ANTHROPIC_API_KEY: undefined,
+    ANTHROPIC_MODEL: undefined,
   });
   const fetcher = new FakeFetcher();
   const mailer = new CaptureMailer();

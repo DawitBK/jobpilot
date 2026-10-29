@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
 
 export interface MailMessage {
@@ -41,5 +43,33 @@ export class SmtpMailer implements Mailer {
       subject: message.subject,
       text: message.text,
     });
+  }
+}
+
+/**
+ * Development only: every message becomes a text file in a folder, so the whole recovery and notification flow can be
+ * tried (and tested in a browser) on a machine that has no mail server. Never used in production: createApp refuses it.
+ */
+export class FileMailer implements Mailer {
+  readonly configured = true;
+  private counter = 0;
+
+  constructor(private readonly dir: string) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  async send(message: MailMessage): Promise<void> {
+    this.counter += 1;
+    const safe = message.to.replace(/[^a-z0-9@._-]/gi, '_');
+    const name = `${Date.now()}-${String(this.counter).padStart(4, '0')}-${safe}.txt`;
+    writeFileSync(
+      join(this.dir, name),
+      `To: ${message.to}
+Subject: ${message.subject}
+
+${message.text}
+`,
+      'utf8',
+    );
   }
 }

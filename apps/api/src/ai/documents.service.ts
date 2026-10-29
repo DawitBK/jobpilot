@@ -240,7 +240,8 @@ export class DocumentsService {
     const answer = await prepared.provider.complete({
       system: SYSTEM_PROMPT,
       user: redacted.text,
-      maxTokens: 2000,
+      // Reasoning models spend part of the budget thinking before they answer; 2000 once left nothing for the answer.
+      maxTokens: 4096,
     });
     const output = parseModelOutput(restorePii(answer.text, redacted.map));
 

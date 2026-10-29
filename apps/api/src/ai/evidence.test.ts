@@ -172,3 +172,45 @@ describe('instructions hidden in untrusted text', () => {
     ).toEqual([]);
   });
 });
+
+describe('dates are dates the record holds', () => {
+  it('reads a month and year as one date, not as a bare year as well', () => {
+    const parts = checkableParts('Working at Tailspin Logistics since February 2020.', []);
+    expect(parts.monthYears).toEqual([{ label: 'February 2020', key: '2020-02' }]);
+    expect(parts.bareYears).toEqual([]);
+  });
+
+  it('reads abbreviated and punctuated months', () => {
+    const parts = checkableParts('From Sept. 2019 to Mar 2021.', []);
+    expect(parts.monthYears.map((m) => m.key)).toEqual(['2019-09', '2021-03']);
+  });
+
+  it('finds a bare year that stands alone', () => {
+    const parts = checkableParts('A backend engineer since 2018, and again in 2021.', []);
+    expect(parts.bareYears).toEqual(['2018', '2021']);
+  });
+
+  it('does not take a version, a postcode or a longer number for a year', () => {
+    const parts = checkableParts('Release 2.2021 and part 20215 shipped.', []);
+    expect(parts.bareYears).toEqual([]);
+  });
+
+  it('supports a month and year the record holds', () => {
+    expect(verify('At Tailspin Logistics since March 2021.').verdict).toBe('SUPPORTED');
+  });
+
+  it('stops a month and year the record does not hold', () => {
+    const c = verify('At Tailspin Logistics since February 2020.');
+    expect(c.verdict).toBe('UNSUPPORTED');
+    expect(c.detail).toContain('February 2020');
+  });
+
+  it('supports a year the record holds and stops one it does not', () => {
+    expect(verify('Working at Tailspin Logistics since 2021.').verdict).toBe('SUPPORTED');
+    expect(verify('Working at Tailspin Logistics since 2016.').verdict).toBe('UNSUPPORTED');
+  });
+
+  it('counts a date as something that was checked', () => {
+    expect(verify('Moved to the platform team in March 2021.').verdict).toBe('SUPPORTED');
+  });
+});

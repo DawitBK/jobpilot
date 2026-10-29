@@ -62,6 +62,11 @@ const loginFailures = new FailureLimiter({
   lockMs: 15 * 60_000,
 });
 
+/** A finished password reset lifts the sign-in lock the person may have run into while trying to remember it. */
+export function clearLoginFailures(email: string): void {
+  loginFailures.reset(email);
+}
+
 function assertNotLocked(email: string): void {
   try {
     loginFailures.assertAllowed(email);

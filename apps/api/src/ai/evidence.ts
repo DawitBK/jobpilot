@@ -488,7 +488,12 @@ export function verifyClaims(
       };
     }
     const checkable =
-      parts.terms.length + parts.names.length + parts.numbers.length + parts.years.length;
+      parts.terms.length +
+      parts.names.length +
+      parts.numbers.length +
+      parts.years.length +
+      parts.monthYears.length +
+      parts.bareYears.length;
     if (checkable === 0) {
       return {
         ...claim,

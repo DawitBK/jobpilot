@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Badge, Notice, PageHeader } from '@/components/ui';
 import { api, requireMe } from '@/lib/server-api';
 import type { MfaStatus } from '@/lib/types';
+import { ChangePassword } from './change-password';
 import { TwoStep } from './two-step';
 
 export const metadata: Metadata = { title: 'Security', robots: { index: false } };
@@ -20,6 +21,13 @@ export default async function SecurityPage() {
           </Badge>
         }
       />
+      <section className="card mb-4 max-w-2xl space-y-4 p-4" aria-label="Password">
+        <h2 className="text-sm font-semibold">Password</h2>
+        <p className="text-sm text-muted">
+          Changing it signs you out everywhere, this device included, and mails you a notice.
+        </p>
+        <ChangePassword />
+      </section>
       <section className="card max-w-2xl space-y-4 p-4" aria-label="Two-step sign-in">
         <h2 className="text-sm font-semibold">Two-step sign-in</h2>
         <p className="text-sm text-muted">

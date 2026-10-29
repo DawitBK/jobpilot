@@ -5,6 +5,7 @@ import {
   newPerson,
   open,
   personWithApplication,
+  recoveryLinkFor,
   signInUi,
   totp,
   unnamedControls,
@@ -383,5 +384,73 @@ test.describe('a brand-new person', () => {
       await expect(page.getByText(/^Welcome to/)).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 20_000 });
     expect(problems).toEqual([]);
+  });
+});
+
+test.describe('a forgotten or changed password', () => {
+  test('a link by email sets a new password, every session ends, and the old password stops working', async ({
+    page,
+  }) => {
+    const person = await newPerson('Forgetful Person');
+    const NEW = 'a-brand-new-passphrase-2026';
+    await open(page, '/login');
+    await page.getByRole('link', { name: 'Forgot your password?' }).click();
+    await expect(page.getByRole('heading', { name: 'Forgot your password?' })).toBeVisible();
+    await page.getByLabel('Email').fill(person.email);
+    const asked = Date.now();
+    await page.getByRole('button', { name: 'Send me a link' }).click();
+    await expect(page.getByText('a link to choose a new password is on its way')).toBeVisible();
+
+    const link = await recoveryLinkFor(person.email, asked);
+    await page.goto(link);
+    await page.locator('input[name="password"]').fill(NEW);
+    await page.getByLabel('New password again').fill('something-else-entirely-1');
+    await page.getByRole('button', { name: 'Set the new password' }).click();
+    await expect(page.getByText('The two passwords are not the same.')).toBeVisible();
+    await page.getByLabel('New password again').fill(NEW);
+    await page.getByRole('button', { name: 'Set the new password' }).click();
+    await expect(
+      page.getByText('Your password was changed. Sign in with the new one.'),
+    ).toBeVisible();
+
+    // The old password is refused; the new one works.
+    await page.getByLabel('Email').fill(person.email);
+    await page.getByLabel('Password').fill(person.password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByText('That email and password do not match.')).toBeVisible();
+    await page.getByLabel('Email').fill(person.email);
+    await page.getByLabel('Password').fill(NEW);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    // The same link is spent.
+    await page.goto(link);
+    await page.locator('input[name="password"]').fill('yet-another-passphrase-2026');
+    await page.getByLabel('New password again').fill('yet-another-passphrase-2026');
+    await page.getByRole('button', { name: 'Set the new password' }).click();
+    await expect(page.getByText('This link is not valid any more.')).toBeVisible();
+  });
+
+  test('a signed-in person changes their password on the Security page and is signed out', async ({
+    page,
+  }) => {
+    const person = await newPerson('Changing Person');
+    const NEW = 'changed-passphrase-for-the-test-1';
+    await signInUi(page, person.email);
+    await open(page, '/security');
+    await page.getByLabel('Current password').fill('not-my-current-password');
+    await page.locator('input[name="newPassword"]').fill(NEW);
+    await page.getByLabel('New password again').fill(NEW);
+    await page.getByRole('button', { name: 'Change password' }).click();
+    await expect(page.getByText('That is not your current password.')).toBeVisible();
+
+    await page.getByLabel('Current password').fill(person.password);
+    await page.getByRole('button', { name: 'Change password' }).click();
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByText('every device was signed out')).toBeVisible();
+    await page.getByLabel('Email').fill(person.email);
+    await page.getByLabel('Password').fill(NEW);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
   });
 });

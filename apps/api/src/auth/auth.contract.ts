@@ -100,3 +100,16 @@ export const updateOrganizationSchema = z
   .object({ name: z.string().trim().min(1).max(120) })
   .strict();
 export type UpdateOrganization = z.output<typeof updateOrganizationSchema>;
+
+export const forgotPasswordSchema = z.object({ email }).strict();
+export type ForgotPassword = z.output<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z
+  .object({ token: z.string().min(20).max(200), password })
+  .strict();
+export type ResetPassword = z.output<typeof resetPasswordSchema>;
+
+export const changePasswordSchema = z
+  .object({ currentPassword: z.string().min(1).max(128), newPassword: password })
+  .strict();
+export type ChangePassword = z.output<typeof changePasswordSchema>;

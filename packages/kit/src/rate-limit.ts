@@ -84,7 +84,8 @@ export interface RateLimitOptions {
   enabled?: () => boolean;
 }
 
-export const AUTH_PATH = /^\/api\/v1\/auth\/(login|register|select-organization|mfa)$/;
+export const AUTH_PATH =
+  /^\/api\/v1\/auth\/(login|register|select-organization|mfa|forgot-password|reset-password)$/;
 
 /** The defaults every service uses: 10 sign-in or sign-up attempts a minute, 600 requests a minute. */
 export const DEFAULT_RATE_LIMITS: RateLimitOptions = {

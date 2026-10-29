@@ -718,6 +718,25 @@ export const mfaRecoveryCodes = pgTable(
   (t) => [uniqueIndex('mfa_recovery_codes_hash_uq').on(t.userId, t.codeHash)],
 );
 
+/** A one-time password recovery link; only the token's hash is stored, and it works once, for an hour. */
+export const passwordResets = pgTable(
+  'password_resets',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('password_resets_hash_uq').on(t.tokenHash),
+    index('password_resets_user_idx').on(t.userId),
+  ],
+);
+
 /** An organization's own credentials, encrypted; the API never returns a value, only that one is set. */
 export const organizationSecrets = pgTable(
   'organization_secrets',

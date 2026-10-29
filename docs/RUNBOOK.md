@@ -47,3 +47,11 @@ WEB_URL=http://127.0.0.1:3031 API_URL=http://127.0.0.1:3000 pnpm test:e2e   # re
 - **Secrets**: losing `SECRETS_KEY` makes stored two-step secrets and stored AI keys unreadable (people then sign in with
   a recovery code and set it up again). Back the key up separately from the database.
 - **AI**: without a key, AI writing answers 503 "not set up" and people write documents themselves.
+- **Password recovery and change.** `POST /auth/forgot-password` mails a one-time link (valid one hour, only its hash is stored,
+  three per address per hour, the same answer for every address); `POST /auth/reset-password` sets the password, ends every
+  session and lifts a sign-in lock; `POST /me/password` changes your own (current password required, every session ends).
+  An account that signs in through the identity provider gets no recovery link and cannot change a local password: the
+  provider decides who may sign in, and a local password would be a way around it. Without a mail server (`SMTP_URL`) no link
+  can be sent, so recovery needs mail in production: set `SMTP_URL`, `MAIL_FROM` and `APP_URL`.
+- **Mail in development and CI**: set `MAIL_OUTBOX_DIR=<folder>` and every email becomes a text file there (refused when
+  `NODE_ENV=production`). The browser journeys read the recovery link from it. Email verification at registration is not built.

@@ -31,7 +31,10 @@ export class AppModule {
       imports: [
         DbModule.forRoot(databaseUrl),
         SecretsModule.register(secretBox),
-        AuthModule.forRoot(auth),
+        AuthModule.forRoot(auth, {
+          options: { appUrl: outbox.options.appUrl },
+          mailer: outbox.mailer,
+        }),
         HealthModule.registerAsync({
           inject: [POOL],
           useFactory: ((pool: pg.Pool) => ({

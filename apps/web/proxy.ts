@@ -3,8 +3,8 @@ import { forwardedFor } from './lib/client-ip';
 import { refreshTokens } from './lib/refresh';
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookie, refreshCookie } from './lib/session';
 
-/** Everything except the landing page and the sign-in and registration pages needs a session. */
-const PUBLIC_PATHS = ['/', '/login', '/register'];
+/** Everything except the landing page and the sign-in, registration and password recovery pages needs a session. */
+const PUBLIC_PATHS = ['/', '/login', '/register', '/forgot-password', '/reset-password'];
 const isPublic = (pathname: string) =>
   PUBLIC_PATHS.includes(pathname) || pathname.startsWith('/login/');
 

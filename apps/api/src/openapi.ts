@@ -591,6 +591,39 @@ export function openApiDocument(): Record<string, unknown> {
       ok: none,
     },
 
+    // ---- password recovery and change
+    {
+      access: 'public',
+      method: 'post',
+      path: '/auth/forgot-password',
+      id: 'forgotPassword',
+      summary:
+        'Ask for a one-time recovery link by email (the answer is the same for every address)',
+      tag: 'auth',
+      body: auth.forgotPasswordSchema,
+      ok: [202, z.object({ accepted: z.boolean() })],
+    },
+    {
+      access: 'public',
+      method: 'post',
+      path: '/auth/reset-password',
+      id: 'resetPassword',
+      summary: 'Set a new password with the link from the email; every session ends',
+      tag: 'auth',
+      body: auth.resetPasswordSchema,
+      ok: none,
+    },
+    {
+      access: 'signed-in',
+      method: 'post',
+      path: '/me/password',
+      id: 'changePassword',
+      summary: 'Change your own password: needs the current one; every session ends',
+      tag: 'security',
+      body: auth.changePasswordSchema,
+      ok: none,
+    },
+
     // ---- the AI connection
     {
       access: 'ai_config:manage',

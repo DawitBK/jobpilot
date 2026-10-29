@@ -101,6 +101,9 @@ jobs:
       SECRETS_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
       RATE_LIMIT: 'off'
       SEED_PASSWORD: ci-demo-passphrase-2026
+      # No mail server in CI: the API writes each email to this folder, and the recovery journeys read the link from it.
+      MAIL_OUTBOX_DIR: /tmp/jobpilot-mail
+      APP_URL: http://127.0.0.1:3031
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

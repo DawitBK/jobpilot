@@ -33,6 +33,8 @@ export const envSchema = baseEnvSchema.extend({
     .regex(/^smtps?:\/\//, 'must be an smtp:// or smtps:// URL')
     .optional(),
   MAIL_FROM: z.string().min(3).optional(),
+  /** Development only: write every email to a text file in this folder instead of sending it. Refused in production. */
+  MAIL_OUTBOX_DIR: z.string().min(1).optional(),
   /** 32 random bytes, base64 (openssl rand -base64 32). Encrypts two-step sign-in secrets and organization credentials; without it neither can be stored. */
   SECRETS_KEY: z.string().min(1).optional(),
   /** The key before a rotation: values made with it can still be read until they are written again. */

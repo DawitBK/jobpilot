@@ -14,3 +14,4 @@ next-env.d.ts
 .auth/
 test-results/
 playwright-report/
+.dev-mail/

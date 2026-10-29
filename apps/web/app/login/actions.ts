@@ -153,3 +153,11 @@ export async function logout(): Promise<void> {
   jar.delete(REFRESH_COOKIE);
   redirect('/');
 }
+
+/** After a password change every session has ended on the server: clear this browser's cookies too and ask for the new password. */
+export async function endSessionsAfterPasswordChange(): Promise<void> {
+  const jar = await cookies();
+  jar.delete(ACCESS_COOKIE);
+  jar.delete(REFRESH_COOKIE);
+  redirect('/login?notice=password-changed');
+}

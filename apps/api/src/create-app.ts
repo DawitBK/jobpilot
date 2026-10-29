@@ -6,7 +6,7 @@ import { AppModule } from './app.module.js';
 import type { Env } from './config.js';
 import { serverConnection, type AiProviderFactory } from './ai/provider.js';
 import type { JobFeedFetcher } from './jobs/feeds.js';
-import { NoMailer, SmtpMailer, type Mailer } from './outbox/mailer.js';
+import { FileMailer, NoMailer, SmtpMailer, type Mailer } from './outbox/mailer.js';
 import { SecretBox } from './secrets/secret-box.js';
 
 export interface AppOptions {
@@ -21,7 +21,7 @@ export interface AppOptions {
 
 /** Build the application. Shared by `main.ts` and the integration tests. */
 export async function createApp(env: Env, options: AppOptions = {}): Promise<INestApplication> {
-  const mailer: Mailer = options.mailer ?? (env.SMTP_URL ? smtpMailer(env) : new NoMailer());
+  const mailer: Mailer = options.mailer ?? chooseMailer(env);
   const app = await NestFactory.create(
     AppModule.register(
       env.DATABASE_URL,
@@ -58,6 +58,18 @@ export async function createApp(env: Env, options: AppOptions = {}): Promise<INe
   applyKit(app, options.logger);
   await app.init();
   return app;
+}
+
+/** SMTP when it is configured; a folder of text files for development; otherwise nothing is sent and notifications stay in the app. */
+function chooseMailer(env: Env): Mailer {
+  if (env.SMTP_URL) return smtpMailer(env);
+  if (env.MAIL_OUTBOX_DIR) {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('MAIL_OUTBOX_DIR is for development only; production needs SMTP_URL');
+    }
+    return new FileMailer(env.MAIL_OUTBOX_DIR);
+  }
+  return new NoMailer();
 }
 
 /** SMTP_URL needs the sender and the web address that the links in emails point to; a half-set mail setup fails at boot. */
