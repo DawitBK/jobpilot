@@ -9,3 +9,8 @@ coverage/
 .DS_Store
 next-env.d.ts
 .next/
+.dev.log
+.dev.err.log
+.auth/
+test-results/
+playwright-report/

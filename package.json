@@ -2,7 +2,7 @@
   "name": "jobpilot",
   "version": "0.1.0",
   "private": true,
-  "description": "JobPilot: point of sale, inventory with weighted-average cost and double-entry accounting on NestJS 12, Drizzle and PostgreSQL 18",
+  "description": "JobPilot: a multi-tenant job-search platform with a career graph, transparent matching, an application pipeline in which only a person approves, and evidence-checked AI drafting",
   "license": "Apache-2.0",
   "type": "module",
   "packageManager": "pnpm@10.34.7",
@@ -19,10 +19,15 @@
     "test:integration": "turbo run test:integration",
     "db:up": "docker compose -f compose.dev.yml up -d --wait",
     "db:down": "docker compose -f compose.dev.yml down",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "seed": "node scripts/seed.mjs",
+    "dev": "node scripts/dev.mjs",
+    "db:dev": "node scripts/dev-db.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "^24.19.2",
     "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.0.0",

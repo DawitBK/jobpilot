@@ -5,22 +5,27 @@ a transparent matching engine, and applications that move through a state machin
 person can approve a submission**. Built so that one organization can never see another's data, and
 so that the audit trail proves it was not edited.
 
-> **Status:** the API foundation and the web app (profile, jobs, matches, the application pipeline,
-> sources, team, audit). The AI gateway, resume and cover-letter generation, the
-> policy-gated browser worker, email intelligence and billing are specified and not built yet; see
-> the [enterprise bar](docs/enterprise-bar.md) for exactly what exists and what does not.
+> **Status:** the API and web app cover tenancy, identity (password, two-step, single sign-on), the career graph,
+> discovery, matching, the application pipeline, an outbox dispatcher with notifications and email, plans and limits,
+> evidence-checked AI drafting, employer-email triage and a review policy. Not built: the policy-gated browser worker and
+> Gmail/Outlook mailbox sync. No payment provider is connected, and the AI has not been run against a real provider key.
+> See the [enterprise bar](docs/enterprise-bar.md) for exactly what exists and the [runbook](docs/RUNBOOK.md) to run it.
 
 ## What it does
 
-| Area         | Behaviour                                                                                                                                                       |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tenancy      | people belong to many organizations with a role in each; sign in asks which one; every tenant table is protected by **row-level security**                      |
-| Access       | six roles and `resource:action` permissions carried in a short-lived token; rotating refresh tokens with reuse detection; removing a member ends their sessions |
-| Career graph | profile, skills, experience, education, projects; years of experience computed without double-counting overlapping jobs                                         |
-| Discovery    | RSS/Atom and Greenhouse connectors, raw postings kept, normalised (salary, seniority, remote, visa, skills), de-duplicated, with SSRF-safe fetching             |
-| Matching     | a pure, reproducible score (skills, location, salary, seniority) with hard filters that always win; a good match opens an application                           |
-| Applications | an 18-state machine; approval is its own action, by a person only, recorded with who and when                                                                   |
-| Evidence     | audit trail as a hash chain you can verify; every change also announces itself in a transactional outbox                                                        |
+| Area          | Behaviour                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tenancy       | people belong to many organizations with a role in each; sign in asks which one; every tenant table is protected by **row-level security**                      |
+| Access        | six roles and `resource:action` permissions carried in a short-lived token; rotating refresh tokens with reuse detection; removing a member ends their sessions |
+| Career graph  | profile, skills, experience, education, projects; years of experience computed without double-counting overlapping jobs                                         |
+| Discovery     | RSS/Atom and Greenhouse connectors, raw postings kept, normalised (salary, seniority, remote, visa, skills), de-duplicated, with SSRF-safe fetching             |
+| Matching      | a pure, reproducible score (skills, location, salary, seniority) with hard filters that always win; a good match opens an application                           |
+| Applications  | an 18-state machine; approval is its own action, by a person only, recorded with who and when                                                                   |
+| Notifications | the outbox is dispatched into in-app notifications (and email when SMTP is set); approval requests reach the right people                                       |
+| Plans         | limits on members, sources, applications and AI documents, enforced transactionally; no payment provider yet                                                    |
+| Two-step      | TOTP with recovery codes; secret encrypted at rest; the lockout covers code guessing                                                                            |
+| AI drafting   | a model writes, deterministic code checks every sentence against the candidate record; unsupported claims stop for a person                                     |
+| Evidence      | audit trail as a hash chain you can verify; every change also announces itself in a transactional outbox                                                        |
 
 ## The guarantees (and the test that proves each)
 
@@ -56,6 +61,13 @@ pnpm --filter @jobpilot/api start           # as the runtime role (DATABASE_URL)
 
 Sign up with `POST /api/v1/auth/register`: that creates your account and a personal workspace you
 own. The contract is at `http://localhost:3000/openapi.json`.
+
+## Demo data and browser tests
+
+```sh
+pnpm seed       # a connected demo world through the public API; safe to run again (see docs/RUNBOOK.md)
+pnpm test:e2e   # 15 real-browser journeys against a running, seeded stack
+```
 
 ## Test it
 
