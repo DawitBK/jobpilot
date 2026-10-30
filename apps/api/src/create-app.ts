@@ -6,6 +6,7 @@ import { AppModule } from './app.module.js';
 import type { Env } from './config.js';
 import { serverConnection, type AiProviderFactory } from './ai/provider.js';
 import type { JobFeedFetcher } from './jobs/feeds.js';
+import { PaymentProviders } from './billing/payments/registry.js';
 import { FileMailer, NoMailer, SmtpMailer, type Mailer } from './outbox/mailer.js';
 import { SecretBox } from './secrets/secret-box.js';
 
@@ -17,11 +18,19 @@ export interface AppOptions {
   mailer?: Mailer;
   /** Replace the AI provider (tests answer with canned replies; no suite ever calls out). */
   aiProviderFactory?: AiProviderFactory;
+  /** Replace the payment providers (tests use a fake one; no suite ever calls a real provider). */
+  paymentProviders?: PaymentProviders;
 }
 
 /** Build the application. Shared by `main.ts` and the integration tests. */
 export async function createApp(env: Env, options: AppOptions = {}): Promise<INestApplication> {
   const mailer: Mailer = options.mailer ?? chooseMailer(env);
+  const payments = options.paymentProviders ?? PaymentProviders.fromSettings(env);
+  if (payments.connected && !env.APP_URL) {
+    throw new Error(
+      'A payment provider is configured, so APP_URL must be set: it is where buyers return to',
+    );
+  }
   const app = await NestFactory.create(
     AppModule.register(
       env.DATABASE_URL,
@@ -52,8 +61,9 @@ export async function createApp(env: Env, options: AppOptions = {}): Promise<INe
         },
         factory: options.aiProviderFactory,
       },
+      { providers: payments, appUrl: env.APP_URL ?? '' },
     ),
-    { logger: env.NODE_ENV === 'test' ? false : ['error', 'warn'] },
+    { rawBody: true, logger: env.NODE_ENV === 'test' ? false : ['error', 'warn'] },
   );
   applyKit(app, options.logger);
   await app.init();

@@ -358,6 +358,7 @@ describe('OpenAPI document', () => {
       'logout',
       'forgotPassword',
       'resetPassword',
+      'paymentWebhook',
     ]);
     for (const op of operations) {
       expect(op.security !== undefined, op.operationId).toBe(!open.has(op.operationId));

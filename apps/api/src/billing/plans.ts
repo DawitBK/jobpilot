@@ -9,8 +9,10 @@ export type PlanLimits = Record<QuotaResource, number | null>;
 export interface PlanSpec {
   name: PlanName;
   label: string;
-  /** Shown to people; there is no payment provider connected yet, so nothing is charged. */
+  /** Shown to people; charged only when a payment provider is connected (see payments). */
   priceUsdPerMonth: number | null;
+  /** List price in Ethiopian birr, for the providers that charge in birr (Chapa, Telebirr). Change it here. */
+  priceEtbPerMonth: number | null;
   limits: PlanLimits;
 }
 
@@ -19,24 +21,28 @@ export const PLANS: Record<PlanName, PlanSpec> = {
     name: 'FREE',
     label: 'Free',
     priceUsdPerMonth: 0,
+    priceEtbPerMonth: 0,
     limits: { members: 3, sources: 1, applications: 25, aiGenerations: 10 },
   },
   PRO: {
     name: 'PRO',
     label: 'Pro',
     priceUsdPerMonth: 19,
+    priceEtbPerMonth: 2500,
     limits: { members: 5, sources: 5, applications: 250, aiGenerations: 150 },
   },
   TEAM: {
     name: 'TEAM',
     label: 'Team',
     priceUsdPerMonth: 99,
+    priceEtbPerMonth: 12500,
     limits: { members: 25, sources: 25, applications: 2500, aiGenerations: 1500 },
   },
   ENTERPRISE: {
     name: 'ENTERPRISE',
     label: 'Enterprise',
     priceUsdPerMonth: null,
+    priceEtbPerMonth: null,
     limits: { members: null, sources: null, applications: null, aiGenerations: null },
   },
 };

@@ -10,6 +10,8 @@ import * as app from './applications/applications.contract.js';
 import * as auth from './auth/auth.contract.js';
 import * as cand from './candidates/candidates.contract.js';
 import { billingSchema, changePlanSchema } from './billing/billing.controller.js';
+import { checkoutSchema } from './billing/payments/payments.controller.js';
+import { PLAN_NAMES } from './billing/plans.js';
 import { Public } from './common/auth.js';
 import * as mfa from './auth/mfa.contract.js';
 import { emailSchema, logEmailSchema } from './emails/emails.service.js';
@@ -525,10 +527,78 @@ export function openApiDocument(): Record<string, unknown> {
       method: 'put',
       path: '/billing/plan',
       id: 'changePlan',
-      summary: 'Change the plan (no payment provider is connected: nothing is charged)',
+      summary:
+        'Change the plan. Moving down is free; moving up is free only while no payment provider is connected (otherwise 402: use a checkout)',
       tag: 'billing',
       body: changePlanSchema,
       ok: ok(billingSchema),
+    },
+    {
+      access: 'billing:manage',
+      method: 'get',
+      path: '/billing/providers',
+      id: 'paymentProviders',
+      summary:
+        'Every way of paying the application knows, and whether it works on this server (with the reason when it does not)',
+      tag: 'billing',
+      ok: ok(
+        z.object({
+          connected: z.boolean(),
+          providers: z.array(
+            z.object({
+              id: z.enum(['stripe', 'chapa', 'telebirr']),
+              label: z.string(),
+              currency: z.enum(['USD', 'ETB']),
+              available: z.boolean(),
+              reason: z.string().optional(),
+            }),
+          ),
+        }),
+      ),
+    },
+    {
+      access: 'billing:manage',
+      method: 'post',
+      path: '/billing/checkout',
+      id: 'startCheckout',
+      summary:
+        'Buy a bigger plan: returns the provider page to pay on. The plan changes only when the provider confirms the payment',
+      tag: 'billing',
+      body: checkoutSchema,
+      ok: created(z.object({ orderId: z.uuid(), checkoutUrl: z.url() })),
+    },
+    {
+      access: 'billing:manage',
+      method: 'get',
+      path: '/billing/orders',
+      id: 'paymentOrders',
+      summary: 'The latest payment attempts of this workspace',
+      tag: 'billing',
+      ok: ok(
+        z.array(
+          z.object({
+            id: z.uuid(),
+            plan: z.enum(PLAN_NAMES),
+            provider: z.string(),
+            amountMinor: z.number().int(),
+            currency: z.string(),
+            status: z.enum(['PENDING', 'PAID', 'FAILED', 'CANCELLED']),
+            failure: z.string().nullable(),
+            createdAt: z.string(),
+            paidAt: z.string().nullable(),
+          }),
+        ),
+      ),
+    },
+    {
+      access: 'public',
+      method: 'post',
+      path: '/billing/webhooks/{provider}',
+      id: 'paymentWebhook',
+      summary:
+        'Where a payment provider reports a payment (signature checked; the provider is then asked whether the order was paid)',
+      tag: 'billing',
+      ok: ok(z.object({ received: z.boolean() })),
     },
 
     // ---- two-step sign-in

@@ -33,6 +33,12 @@ export const envSchema = baseEnvSchema.extend({
     .regex(/^smtps?:\/\//, 'must be an smtp:// or smtps:// URL')
     .optional(),
   MAIL_FROM: z.string().min(3).optional(),
+  /** Payment providers: each is available only when its keys are set. With any of them, a bigger plan has to be paid for. */
+  STRIPE_SECRET_KEY: z.string().min(8).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(8).optional(),
+  CHAPA_SECRET_KEY: z.string().min(8).optional(),
+  /** Optional: when set, Chapa's webhooks must carry a matching signature (a payment is confirmed with Chapa either way). */
+  CHAPA_WEBHOOK_SECRET: z.string().min(8).optional(),
   /** Development only: write every email to a text file in this folder instead of sending it. Refused in production. */
   MAIL_OUTBOX_DIR: z.string().min(1).optional(),
   /** 32 random bytes, base64 (openssl rand -base64 32). Encrypts two-step sign-in secrets and organization credentials; without it neither can be stored. */

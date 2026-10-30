@@ -5,6 +5,7 @@ import pg from 'pg';
 import request from 'supertest';
 import { envSchema } from '../src/config.js';
 import { codeAt, stepOf } from '../src/auth/totp.js';
+import type { PaymentProviders } from '../src/billing/payments/registry.js';
 import { createApp } from '../src/create-app.js';
 import type { JobFeedFetcher } from '../src/jobs/feeds.js';
 import type { AiConnection, AiProvider, AiRequest } from '../src/ai/provider.js';
@@ -86,7 +87,9 @@ export interface Session {
   auth: { Authorization: string };
 }
 
-export async function startContext(): Promise<TestContext> {
+export async function startContext(
+  options: { paymentProviders?: PaymentProviders } = {},
+): Promise<TestContext> {
   const ai = new FakeAi();
   const env = parseEnv(envSchema, {
     ...process.env,
@@ -110,7 +113,12 @@ export async function startContext(): Promise<TestContext> {
   });
   const fetcher = new FakeFetcher();
   const mailer = new CaptureMailer();
-  const app = await createApp(env, { fetcher, mailer, aiProviderFactory: ai.factory });
+  const app = await createApp(env, {
+    fetcher,
+    mailer,
+    aiProviderFactory: ai.factory,
+    ...(options.paymentProviders ? { paymentProviders: options.paymentProviders } : {}),
+  });
   return {
     app,
     owner: new pg.Pool({ connectionString: process.env['MIGRATION_DATABASE_URL'], max: 2 }),

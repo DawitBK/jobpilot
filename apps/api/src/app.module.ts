@@ -4,6 +4,8 @@ import type pg from 'pg';
 import { AuditController } from './audit/audit.controller.js';
 import { BillingController } from './billing/billing.controller.js';
 import { AuthModule } from './auth/auth.module.js';
+import { PaymentsModule } from './billing/payments/payments.module.js';
+import type { PaymentProviders } from './billing/payments/registry.js';
 import type { AuthConfig } from './common/auth.js';
 import { DbModule, POOL } from './db/db.module.js';
 import type { AiProviderFactory, AiSettings } from './ai/provider.js';
@@ -25,6 +27,7 @@ export class AppModule {
     outbox: { options: OutboxOptions; mailer?: Mailer },
     secretBox: SecretBox,
     ai: { settings: AiSettings; factory?: AiProviderFactory },
+    payments: { providers: PaymentProviders; appUrl: string },
   ): DynamicModule {
     return {
       module: AppModule,
@@ -45,6 +48,7 @@ export class AppModule {
         }),
         JobsModule.register(fetcher, ai),
         OutboxModule.register(outbox.options, outbox.mailer),
+        PaymentsModule.register(payments.providers, { appUrl: payments.appUrl }),
       ],
       controllers: [OpenApiController, AuditController, BillingController],
     };

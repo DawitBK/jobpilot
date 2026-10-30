@@ -57,6 +57,13 @@
       "when": 1793000003000,
       "tag": "0007_password_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793000009000,
+      "tag": "0009_payment_orders",
+      "breakpoints": true
     }
   ]
 }

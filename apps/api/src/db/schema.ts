@@ -718,6 +718,34 @@ export const mfaRecoveryCodes = pgTable(
   (t) => [uniqueIndex('mfa_recovery_codes_hash_uq').on(t.userId, t.codeHash)],
 );
 
+export const PAYMENT_STATUSES = ['PENDING', 'PAID', 'FAILED', 'CANCELLED'] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+/** An attempt to buy a plan for a workspace. The plan changes only when the provider confirms the payment. */
+export const paymentOrders = pgTable(
+  'payment_orders',
+  {
+    id: id(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => users.id),
+    plan: text('plan').notNull(),
+    provider: text('provider').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+    currency: text('currency').notNull(),
+    status: text('status', { enum: PAYMENT_STATUSES }).notNull().default('PENDING'),
+    providerReference: text('provider_reference'),
+    checkoutUrl: text('checkout_url'),
+    failure: text('failure'),
+    createdAt: createdAt(),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+  },
+  (t) => [index('payment_orders_org_idx').on(t.organizationId, t.createdAt)],
+);
+
 /** A one-time password recovery link; only the token's hash is stored, and it works once, for an hour. */
 export const passwordResets = pgTable(
   'password_resets',
@@ -760,3 +788,4 @@ export type CandidateProfileRow = typeof candidateProfiles.$inferSelect;
 export type JobRow = typeof jobs.$inferSelect;
 export type JobSourceRow = typeof jobSources.$inferSelect;
 export type ApplicationRow = typeof applications.$inferSelect;
+export type PaymentOrderRow = typeof paymentOrders.$inferSelect;
