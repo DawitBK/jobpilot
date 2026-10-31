@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { Notice } from '@/components/ui';
 import { chooseOrganization, completeMfa, type AuthState } from './actions';
 
@@ -17,6 +17,9 @@ export function AuthForm({
   next?: string;
 }) {
   const [state, run, pending] = useActionState<AuthState, FormData>(action, {});
+  // A form action clears the form after it runs; what the person typed stays unless it was a secret.
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [chosen, choose, choosing] = useActionState<AuthState, FormData>(chooseOrganization, {});
   const [second, secondRun, secondPending] = useActionState<AuthState, FormData>(completeMfa, {});
   const err = state.fieldErrors ?? {};
@@ -86,9 +89,24 @@ export function AuthForm({
     <form action={run} className="card space-y-4 p-5">
       <input type="hidden" name="next" value={next ?? ''} />
       {mode === 'register' ? (
-        <Field name="fullName" label="Full name" error={err['fullName']} autoComplete="name" />
+        <Field
+          name="fullName"
+          label="Full name"
+          error={err['fullName']}
+          autoComplete="name"
+          value={fullName}
+          onChange={setFullName}
+        />
       ) : null}
-      <Field name="email" label="Email" type="email" error={err['email']} autoComplete="username" />
+      <Field
+        name="email"
+        label="Email"
+        type="email"
+        error={err['email']}
+        autoComplete="username"
+        value={email}
+        onChange={setEmail}
+      />
       <Field
         name="password"
         label="Password"
@@ -131,6 +149,8 @@ function Field({
   error,
   hint,
   autoComplete,
+  value,
+  onChange,
 }: {
   name: string;
   label: string;
@@ -138,6 +158,8 @@ function Field({
   error?: string;
   hint?: string;
   autoComplete?: string;
+  value?: string;
+  onChange?: (next: string) => void;
 }) {
   return (
     <label className="block text-sm">
@@ -148,6 +170,7 @@ function Field({
         type={type}
         required
         autoComplete={autoComplete}
+        {...(onChange ? { value: value ?? '', onChange: (e) => onChange(e.target.value) } : {})}
         aria-invalid={error ? true : undefined}
       />
       {hint && !error ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}

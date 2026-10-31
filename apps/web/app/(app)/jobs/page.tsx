@@ -4,6 +4,7 @@ import { Badge, Empty, PageHeader, Pager, Table, num, statusTone } from '@/compo
 import { label, salaryRange, timeAgo } from '@/lib/format';
 import { api, qs, requireMe } from '@/lib/server-api';
 import type { Job, Page } from '@/lib/types';
+import { ImportLinks } from '../sources/source-forms';
 import { NewJob } from './new-job';
 
 export const metadata: Metadata = { title: 'Jobs', robots: { index: false } };
@@ -21,7 +22,14 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       <PageHeader
         title="Jobs"
         subtitle={`${data.page.total} jobs`}
-        actions={me.permissions.includes('jobs:write') ? <NewJob /> : null}
+        actions={
+          me.permissions.includes('jobs:write') ? (
+            <>
+              <ImportLinks />
+              <NewJob />
+            </>
+          ) : null
+        }
       />
       <form className="no-print mb-4 flex flex-wrap items-end gap-2" method="get">
         <label className="text-sm">

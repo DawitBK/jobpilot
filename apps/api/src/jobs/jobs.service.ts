@@ -648,7 +648,11 @@ export class JobsService {
       presetId: input.presetId,
       values: input.values,
     });
-    const hint = Object.values(input.values).find((v) => v.trim());
+    // The account or company the person named tells their sources apart; a page count or a choice does not.
+    const named = entryById(input.presetId)?.fields.find(
+      (f) => f.required && f.kind === 'text' && (input.values[f.key] ?? '').trim(),
+    );
+    const hint = named ? input.values[named.key]!.trim() : undefined;
     return this.createSource(p, {
       type,
       config,

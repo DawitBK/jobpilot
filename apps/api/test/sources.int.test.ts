@@ -86,6 +86,25 @@ describe('the catalog', () => {
       filters: { include: [], exclude: [], remoteOnly: false },
     });
 
+    const other = await signUp(ctx);
+    const named = await post(other, '/sources/from-catalog', {
+      presetId: 'lever',
+      values: { site: 'acme', region: '' },
+    });
+    expect(named.body).toMatchObject({
+      name: 'Lever (acme)',
+      type: 'LEVER',
+      config: { site: 'acme' },
+    });
+    const counted = await post(await signUp(ctx), '/sources/from-catalog', {
+      presetId: 'ethiojobs',
+      values: { pages: '2' },
+    });
+    expect(counted.body.name).toBe('EthioJobs');
+    expect(counted.body.config).toMatchObject({
+      pages: '2',
+      urlTemplate: 'https://ethiojobs.net/job/{id}',
+    });
     const missing = await post(s, '/sources/from-catalog', { presetId: 'lever', values: {} });
     expect(missing.status).toBe(422);
     expect(missing.body.detail).toBe('Account name is required');

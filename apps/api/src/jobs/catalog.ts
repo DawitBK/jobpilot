@@ -40,7 +40,7 @@ export interface CatalogEntry {
   tags: string[];
 }
 
-const T = '2026-10-30';
+const T = '2026-10-31';
 
 const account = (key: string, label: string, help: string, placeholder: string): CatalogField => ({
   key,

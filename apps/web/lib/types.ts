@@ -97,9 +97,17 @@ export interface Job {
   version: number;
 }
 
+export interface SourceFilters {
+  include: string[];
+  exclude: string[];
+  locations: string[];
+  remoteOnly: boolean;
+  maxAgeDays?: number;
+}
+
 export interface Source {
   id: string;
-  type: 'RSS' | 'GREENHOUSE';
+  type: string;
   name: string;
   config: Record<string, string>;
   enabled: boolean;
@@ -107,6 +115,10 @@ export interface Source {
   lastRunAt: string | null;
   lastRunStatus: 'OK' | 'ERROR' | null;
   lastRunMessage: string | null;
+  filters: SourceFilters;
+  presetId: string | null;
+  nextRunAt: string | null;
+  consecutiveFailures: number;
   version: number;
 }
 
@@ -114,8 +126,73 @@ export interface RunResult {
   fetched: number;
   created: number;
   duplicates: number;
+  filtered: number;
   discarded: number;
   matched: number;
+}
+
+export interface SourceRun {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: 'OK' | 'ERROR';
+  trigger: 'MANUAL' | 'SCHEDULE';
+  fetched: number;
+  created: number;
+  duplicates: number;
+  filtered: number;
+  discarded: number;
+  message: string | null;
+}
+
+export interface CatalogField {
+  key: string;
+  label: string;
+  kind: 'text' | 'url' | 'select' | 'number';
+  required?: boolean;
+  placeholder?: string;
+  help?: string;
+  options?: { value: string; label: string }[];
+}
+
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  group: string;
+  summary: string;
+  homepage: string | null;
+  access: 'OPEN' | 'CONFIGURE' | 'LINK_ONLY';
+  type: string | null;
+  fields: CatalogField[];
+  note: string | null;
+  tested: string | null;
+  tags: string[];
+}
+
+export interface PreviewResult {
+  fetched: number;
+  kept: number;
+  filtered: number;
+  type: string;
+  config: Record<string, string>;
+  sample: {
+    title: string;
+    company: string;
+    location: string | null;
+    url: string | null;
+    postedAt: string | null;
+  }[];
+}
+
+export interface ImportResult {
+  results: {
+    url: string;
+    outcome: 'ADDED' | 'ALREADY_KNOWN' | 'FAILED';
+    jobId: string | null;
+    title: string | null;
+    company: string | null;
+    message: string | null;
+  }[];
 }
 
 export interface Match {
