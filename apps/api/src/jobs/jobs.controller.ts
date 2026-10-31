@@ -13,18 +13,24 @@ import {
 import { ZodValidationPipe } from '@jobpilot/kit';
 import { CurrentUser, RequirePermission, type Principal } from '../common/auth.js';
 import {
+  createFromCatalogSchema,
   createJobSchema,
   createSourceSchema,
   idParamsSchema,
+  importLinksSchema,
   listJobsQuerySchema,
   listMatchesQuerySchema,
+  previewSourceSchema,
   rescoreSchema,
   updateJobSchema,
   updateSourceSchema,
+  type CreateFromCatalog,
   type CreateJob,
   type CreateSource,
+  type ImportLinks,
   type ListJobsQuery,
   type ListMatchesQuery,
+  type PreviewSource,
   type UpdateJob,
   type UpdateSource,
 } from './jobs.contract.js';
@@ -72,7 +78,45 @@ export class JobsController {
     return this.jobs.updateJob(p, params.id, body);
   }
 
+  @RequirePermission('jobs:write')
+  @Post('jobs/import')
+  @HttpCode(200)
+  importLinks(
+    @CurrentUser() p: Principal,
+    @Body(new ZodValidationPipe(importLinksSchema)) body: ImportLinks,
+  ) {
+    return this.jobs.importLinks(p, body);
+  }
+
   // ---- sources ----
+
+  @RequirePermission('sources:manage')
+  @Get('sources/catalog')
+  catalog() {
+    return this.jobs.catalog();
+  }
+
+  @RequirePermission('sources:manage')
+  @Post('sources/preview')
+  @HttpCode(200)
+  preview(@Body(new ZodValidationPipe(previewSourceSchema)) body: PreviewSource) {
+    return this.jobs.preview(body);
+  }
+
+  @RequirePermission('sources:manage')
+  @Post('sources/from-catalog')
+  createFromCatalog(
+    @CurrentUser() p: Principal,
+    @Body(new ZodValidationPipe(createFromCatalogSchema)) body: CreateFromCatalog,
+  ) {
+    return this.jobs.createFromCatalog(p, body);
+  }
+
+  @RequirePermission('sources:manage')
+  @Get('sources/:id/runs')
+  listRuns(@CurrentUser() p: Principal, @Param(idParams) params: { id: string }) {
+    return this.jobs.listRuns(p, params.id);
+  }
 
   @RequirePermission('sources:manage')
   @Post('sources')

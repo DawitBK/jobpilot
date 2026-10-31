@@ -10,6 +10,7 @@ import { createApp } from '../src/create-app.js';
 import type { JobFeedFetcher } from '../src/jobs/feeds.js';
 import type { AiConnection, AiProvider, AiRequest } from '../src/ai/provider.js';
 import type { Mailer, MailMessage } from '../src/outbox/mailer.js';
+import { SourceScheduler } from '../src/jobs/sources.scheduler.js';
 import { OutboxDispatcher } from '../src/outbox/outbox.dispatcher.js';
 
 export const PASSWORD = 'correct horse battery staple';
@@ -73,6 +74,8 @@ export interface TestContext {
   ai: FakeAi;
   /** Run the outbox dispatcher once, now (the background loop is off in tests). */
   dispatch: () => Promise<number>;
+  /** Read every job source that is due, now (the schedule is off in tests). */
+  pollSources: () => Promise<number>;
   http: () => ReturnType<typeof request>;
   close: () => Promise<void>;
 }
@@ -96,6 +99,7 @@ export async function startContext(
     NODE_ENV: 'test',
     JWT_SECRET: 'test-secret-test-secret-test-secret-123456',
     OUTBOX_POLL_MS: '0',
+    SOURCES_POLL_MS: '0',
     // 32 bytes, fixed: the suite only needs encryption to work, not to be secret.
     SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'),
     // The suite never inherits a developer's AI vendor keys: "AI is not set up" is a state it tests on purpose.
@@ -127,6 +131,7 @@ export async function startContext(
     mailer,
     ai,
     dispatch: () => app.get(OutboxDispatcher).tick(),
+    pollSources: () => app.get(SourceScheduler).tick(),
     http: () => request(app.getHttpServer()),
     close: async () => {
       await app.close();

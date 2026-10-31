@@ -62,6 +62,7 @@ export async function createApp(env: Env, options: AppOptions = {}): Promise<INe
         factory: options.aiProviderFactory,
       },
       { providers: payments, appUrl: env.APP_URL ?? '' },
+      { pollMs: env.SOURCES_POLL_MS },
     ),
     { rawBody: true, logger: env.NODE_ENV === 'test' ? false : ['error', 'warn'] },
   );

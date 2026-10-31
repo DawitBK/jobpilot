@@ -7,12 +7,23 @@ import type { RawPosting } from './normalize.js';
 export const JOB_FEED_FETCHER = 'JOB_FEED_FETCHER';
 
 /** The only thing the connectors need from the network. Tests replace it with canned feeds. */
+export interface FetchInit {
+  method?: 'GET' | 'POST';
+  body?: string;
+  headers?: Record<string, string>;
+  /** Larger than the default for the few feeds that are big (up to 40 MB). */
+  maxBytes?: number;
+}
+
 export interface JobFeedFetcher {
-  fetchText(url: string): Promise<string>;
+  fetchText(url: string, init?: FetchInit): Promise<string>;
 }
 
 const MAX_BYTES = 5 * 1024 * 1024;
-const TIMEOUT_MS = 10_000;
+const MAX_BYTES_CEILING = 40 * 1024 * 1024;
+const TIMEOUT_MS = 20_000;
+/** Who we are to the sites we read: honest, and with a way to reach the operator. */
+export const USER_AGENT = 'JobPilot/1.0 (job search tool; reads public job postings)';
 
 /** True for any address that must never be reached from a user-supplied URL (SSRF). */
 export function isPrivateAddress(address: string): boolean {
@@ -75,27 +86,69 @@ export async function assertPublicHttpsUrl(raw: string): Promise<URL> {
   return url;
 }
 
-/** Real network access, with the guards: public https only, a size cap, a timeout, redirects re-checked. */
+/** The connection failed (as opposed to the site answering with an error): worth trying once more. */
+class NetworkError extends Error {}
+
+const reason = (e: unknown): string => {
+  const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+  if (cause?.code === 'ENOTFOUND') return 'that address does not exist';
+  if ((e as Error).name === 'TimeoutError') return 'it took too long to answer';
+  return cause?.code ?? cause?.message ?? (e as Error).message;
+};
+
+/** Real network access, with the guards: public https only, a size cap, a timeout, redirects re-checked, one retry if the connection drops. */
 export class HttpJobFeedFetcher implements JobFeedFetcher {
-  async fetchText(raw: string): Promise<string> {
+  async fetchText(raw: string, init: FetchInit = {}): Promise<string> {
+    try {
+      return await this.once(raw, init);
+    } catch (error) {
+      if (!(error instanceof NetworkError)) throw error;
+      await new Promise((r) => setTimeout(r, 700));
+      try {
+        return await this.once(raw, init);
+      } catch (again) {
+        if (again instanceof NetworkError) throw new Error(again.message, { cause: again });
+        throw again;
+      }
+    }
+  }
+
+  private async once(raw: string, init: FetchInit): Promise<string> {
     let url = await assertPublicHttpsUrl(raw);
+    const limit = Math.min(init.maxBytes ?? MAX_BYTES, MAX_BYTES_CEILING);
     for (let hop = 0; hop < 4; hop += 1) {
-      const res = await fetch(url, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        headers: {
-          accept: 'application/rss+xml, application/atom+xml, application/json, text/xml',
-        },
-      });
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: init.method ?? 'GET',
+          body: init.body,
+          redirect: 'manual',
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+          headers: {
+            accept:
+              'application/rss+xml, application/atom+xml, application/json, application/xml, text/xml, text/html;q=0.8, */*;q=0.5',
+            'user-agent': USER_AGENT,
+            ...(init.body ? { 'content-type': 'application/json' } : {}),
+            ...init.headers,
+          },
+        });
+      } catch (e) {
+        throw new NetworkError(`${url.hostname} could not be reached: ${reason(e)}`);
+      }
       if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
         url = await assertPublicHttpsUrl(new URL(res.headers.get('location')!, url).toString());
         continue;
       }
-      if (!res.ok) throw new Error(`The feed answered ${res.status}`);
+      if (!res.ok) throw new Error(`${url.hostname} answered ${res.status}`);
       const length = Number(res.headers.get('content-length') ?? 0);
-      if (length > MAX_BYTES) throw new Error('The feed is too large');
-      const text = await res.text();
-      if (text.length > MAX_BYTES) throw new Error('The feed is too large');
+      if (length > limit) throw new Error('The response is too large');
+      let text: string;
+      try {
+        text = await res.text();
+      } catch (e) {
+        throw new NetworkError(`${url.hostname} dropped the connection: ${reason(e)}`);
+      }
+      if (text.length > limit) throw new Error('The response is too large');
       return text;
     }
     throw new Error('Too many redirects');
@@ -104,16 +157,8 @@ export class HttpJobFeedFetcher implements JobFeedFetcher {
 
 // ---------------------------------------------------------------- connectors
 
-export interface SourceConfig {
-  type: 'RSS' | 'GREENHOUSE';
-  config: Record<string, string>;
-}
-
-export interface JobSourceConnector {
-  /** Check the config shape without touching the network. */
-  validateConfig(config: Record<string, string>): string | null;
-  fetch(config: Record<string, string>, fetcher: JobFeedFetcher): Promise<RawPosting[]>;
-}
+export type { JobSourceConnector } from './connectors/util.js';
+import type { JobSourceConnector } from './connectors/util.js';
 
 const xml = new XMLParser({
   ignoreAttributes: false,
@@ -174,7 +219,9 @@ export const rssConnector: JobSourceConnector = {
     return null;
   },
   async fetch(config, fetcher) {
-    const body = await fetcher.fetchText(config['feedUrl']!);
+    // Most feeds are small; a few (Google's) are tens of megabytes, which the source can allow with maxMb.
+    const maxBytes = Math.min(Number(config['maxMb']) || 5, 40) * 1024 * 1024;
+    const body = await fetcher.fetchText(config['feedUrl']!, { maxBytes });
     return parseFeed(body, config['companyName'] ?? new URL(config['feedUrl']!).hostname);
   },
 };
@@ -209,9 +256,4 @@ export const greenhouseConnector: JobSourceConnector = {
       postedAt: j.updated_at ? dateOf(j.updated_at) : null,
     }));
   },
-};
-
-export const CONNECTORS: Record<SourceConfig['type'], JobSourceConnector> = {
-  RSS: rssConnector,
-  GREENHOUSE: greenhouseConnector,
 };

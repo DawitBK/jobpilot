@@ -23,6 +23,8 @@ export const envSchema = baseEnvSchema.extend({
     .optional(),
   /** How often the outbox dispatcher looks for new events, in milliseconds; 0 turns it off. */
   OUTBOX_POLL_MS: z.coerce.number().int().min(0).max(3_600_000).default(2000),
+  /** How often to look for job sources that are due to be read, in milliseconds; 0 turns the schedule off. Each source has its own interval. */
+  SOURCES_POLL_MS: z.coerce.number().int().min(0).max(3_600_000).default(60_000),
   /** The public address of the web app: the links in emails. Required with SMTP_URL. */
   APP_URL: z
     .url({ protocol: /^https?$/, error: 'must be an absolute http or https URL' })

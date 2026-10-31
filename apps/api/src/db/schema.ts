@@ -46,7 +46,29 @@ export const REMOTE_TYPES = ['REMOTE', 'HYBRID', 'ONSITE'] as const;
 export const SENIORITIES = ['ENTRY', 'MID', 'SENIOR', 'STAFF', 'PRINCIPAL'] as const;
 export const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP'] as const;
 export const JOB_STATUSES = ['ACTIVE', 'EXPIRED', 'CLOSED'] as const;
-export const SOURCE_TYPES = ['RSS', 'GREENHOUSE'] as const;
+export const SOURCE_TYPES = [
+  'RSS',
+  'GREENHOUSE',
+  'LEVER',
+  'ASHBY',
+  'WORKABLE',
+  'SMARTRECRUITERS',
+  'RECRUITEE',
+  'BREEZY',
+  'PERSONIO',
+  'BAMBOOHR',
+  'WORKDAY',
+  'REMOTIVE',
+  'REMOTEOK',
+  'HIMALAYAS',
+  'ARBEITNOW',
+  'JOBICY',
+  'HACKERNEWS',
+  'GOOGLE_CAREERS',
+  'STRUCTURED_DATA',
+  'JSON_API',
+  'HTML_LIST',
+] as const;
 export const RECOMMENDATIONS = ['APPLY', 'MAYBE', 'SKIP'] as const;
 export const APPLICATION_STATES = [
   'DISCOVERED',
@@ -432,6 +454,16 @@ export const jobSources = pgTable(
     config: jsonb('config').$type<Record<string, string>>().notNull(),
     enabled: boolean('enabled').notNull().default(true),
     pollIntervalMinutes: integer('poll_interval_minutes').notNull().default(60),
+    /** What the source keeps (see jobs/filters.ts); empty keeps everything. */
+    filters: jsonb('filters')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    /** The catalog entry this source was made from, so the screen can show its name and tell the person how it was set up. */
+    presetId: text('preset_id'),
+    /** Not read again before this time; pushed out after a failure, so a broken source backs off instead of hammering. */
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     lastRunStatus: text('last_run_status', { enum: ['OK', 'ERROR'] }),
     lastRunMessage: text('last_run_message'),
@@ -622,6 +654,29 @@ export const applicationEvents = pgTable(
     ),
     index('application_events_app_idx').on(t.applicationId, t.createdAt),
   ],
+);
+
+/** One read of a source: when, how it went, and what it brought. The screen shows the last few. */
+export const sourceRuns = pgTable(
+  'source_runs',
+  {
+    id: id(),
+    organizationId: orgId().references(() => organizations.id),
+    sourceId: uuid('source_id')
+      .notNull()
+      .references(() => jobSources.id, { onDelete: 'cascade' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    status: text('status', { enum: ['OK', 'ERROR'] }).notNull(),
+    trigger: text('trigger', { enum: ['MANUAL', 'SCHEDULE'] }).notNull(),
+    fetched: integer('fetched').notNull().default(0),
+    created: integer('created').notNull().default(0),
+    duplicates: integer('duplicates').notNull().default(0),
+    filtered: integer('filtered').notNull().default(0),
+    discarded: integer('discarded').notNull().default(0),
+    message: text('message'),
+  },
+  (t) => [index('source_runs_source_idx').on(t.sourceId, t.startedAt)],
 );
 
 export const DOCUMENT_KINDS = ['RESUME', 'COVER_LETTER'] as const;

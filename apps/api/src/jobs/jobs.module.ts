@@ -22,6 +22,7 @@ import { PolicyService } from '../policy/policy.service.js';
 import { HttpJobFeedFetcher, JOB_FEED_FETCHER, type JobFeedFetcher } from './feeds.js';
 import { JobsController } from './jobs.controller.js';
 import { JobsService } from './jobs.service.js';
+import { SOURCES_OPTIONS, SourceScheduler, type SourcesOptions } from './sources.scheduler.js';
 
 /**
  * Candidates, jobs, matching and applications are one module: they share the matching and
@@ -33,6 +34,7 @@ export class JobsModule {
   static register(
     fetcher: JobFeedFetcher | undefined,
     ai: { settings: AiSettings; factory?: AiProviderFactory },
+    sources: SourcesOptions = { pollMs: 0 },
   ): DynamicModule {
     return {
       module: JobsModule,
@@ -46,6 +48,8 @@ export class JobsModule {
       ],
       providers: [
         JobsService,
+        SourceScheduler,
+        { provide: SOURCES_OPTIONS, useValue: sources },
         CandidatesService,
         ApplicationsService,
         MatchingService,

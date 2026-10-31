@@ -28,6 +28,7 @@ export class AppModule {
     secretBox: SecretBox,
     ai: { settings: AiSettings; factory?: AiProviderFactory },
     payments: { providers: PaymentProviders; appUrl: string },
+    sources: { pollMs: number } = { pollMs: 0 },
   ): DynamicModule {
     return {
       module: AppModule,
@@ -46,7 +47,7 @@ export class AppModule {
             },
           })) as never,
         }),
-        JobsModule.register(fetcher, ai),
+        JobsModule.register(fetcher, ai, sources),
         OutboxModule.register(outbox.options, outbox.mailer),
         PaymentsModule.register(payments.providers, { appUrl: payments.appUrl }),
       ],

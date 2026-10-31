@@ -40,6 +40,41 @@ const ENTITIES: Record<string, string> = {
   '&nbsp;': ' ',
 };
 
+const NAMED: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  ndash: '–',
+  mdash: '—',
+  hellip: '…',
+  lsquo: '‘',
+  rsquo: '’',
+  ldquo: '“',
+  rdquo: '”',
+  bull: '•',
+  middot: '·',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  euro: '€',
+  pound: '£',
+};
+
+/** `&#x27;`, `&#8217;` and the common named ones; anything unknown is left as it was. */
+function decodeEntity(whole: string, body: string): string {
+  const lower = body.toLowerCase();
+  if (lower.startsWith('#x') || lower.startsWith('#')) {
+    const code = lower.startsWith('#x')
+      ? parseInt(lower.slice(2), 16)
+      : parseInt(lower.slice(1), 10);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+  }
+  return NAMED[lower] ?? whole;
+}
+
 /** Turn the HTML of a posting into readable text (and unescape the HTML that arrives escaped). */
 export function toPlainText(input: string): string {
   let text = input;
@@ -51,7 +86,7 @@ export function toPlainText(input: string): string {
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<\s*(br|\/p|\/li|\/h\d|\/div)\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (m) => ENTITIES[m] ?? m)
+    .replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, decodeEntity)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n+/g, '\n')
     .trim();

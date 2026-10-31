@@ -13,27 +13,54 @@ import {
   jobs,
   jobSources,
   rawJobs,
+  sourceRuns,
   type JobRow,
   type JobSourceRow,
 } from '../db/schema.js';
 import { TenantDb } from '../db/tenant.js';
 import { MatchingService } from '../matching/matching.service.js';
 import { normalizeSkill } from '../matching/score.js';
-import { CONNECTORS, JOB_FEED_FETCHER, type JobFeedFetcher } from './feeds.js';
-import { dedupHashOf, normalizeCompany, normalizePosting } from './normalize.js';
+import { buildConfig, CATALOG, entryById } from './catalog.js';
+import { CONNECTORS } from './connectors/index.js';
+import { importPostingFromUrl } from './connectors/generic.js';
+import { JOB_FEED_FETCHER, type JobFeedFetcher } from './feeds.js';
+import { applyFilters, NO_FILTERS, sourceFiltersSchema } from './filters.js';
+import { dedupHashOf, normalizeCompany, normalizePosting, type RawPosting } from './normalize.js';
 import type {
+  CatalogEntryDto,
+  CreateFromCatalog,
   CreateJob,
   CreateSource,
+  ImportLinks,
+  ImportResult,
   JobDto,
   JobSortField,
   ListJobsQuery,
   ListMatchesQuery,
   MatchDto,
+  PreviewResult,
+  PreviewSource,
   RunResult,
   SourceDto,
+  SourceRunDto,
   UpdateJob,
   UpdateSource,
 } from './jobs.contract.js';
+
+/** Who a source is read for: a person pressing "Read now", or the schedule (no person). */
+export interface RunScope {
+  organizationId: string;
+  userId: string | null;
+}
+export type RunTrigger = 'MANUAL' | 'SCHEDULE';
+
+const NIL_USER = '00000000-0000-0000-0000-000000000000';
+const BACKOFF_CAP_MINUTES = 24 * 60;
+const URL_IN_TEXT = /https:\/\/[^\s<>"')\]]+/gi;
+
+/** The wait after a failed read: the source's own interval, doubled for each failure in a row, at most a day. */
+export const retryAfterMinutes = (pollMinutes: number, failures: number): number =>
+  Math.min(pollMinutes * 2 ** Math.min(failures, 10), BACKOFF_CAP_MINUTES);
 
 const SORT = {
   postedAt: jobs.postedAt,
@@ -72,7 +99,25 @@ const toSourceDto = (r: JobSourceRow): SourceDto => ({
   lastRunAt: r.lastRunAt?.toISOString() ?? null,
   lastRunStatus: r.lastRunStatus,
   lastRunMessage: r.lastRunMessage,
+  filters: sourceFiltersSchema.catch(NO_FILTERS).parse(r.filters),
+  presetId: r.presetId,
+  nextRunAt: r.nextRunAt?.toISOString() ?? null,
+  consecutiveFailures: r.consecutiveFailures,
   version: r.version,
+});
+
+const toRunDto = (r: typeof sourceRuns.$inferSelect): SourceRunDto => ({
+  id: r.id,
+  startedAt: r.startedAt.toISOString(),
+  finishedAt: r.finishedAt?.toISOString() ?? null,
+  status: r.status,
+  trigger: r.trigger,
+  fetched: r.fetched,
+  created: r.created,
+  duplicates: r.duplicates,
+  filtered: r.filtered,
+  discarded: r.discarded,
+  message: r.message,
 });
 
 const skillsOf = (list: string[]) => [...new Set(list.map(normalizeSkill))];
@@ -270,6 +315,8 @@ export class JobsService {
             name: input.name,
             config: input.config,
             pollIntervalMinutes: input.pollIntervalMinutes,
+            filters: input.filters,
+            presetId: input.presetId ?? null,
           })
           .returning();
         await assertWithinQuota(tx, p.organizationId, 'sources', true);
@@ -323,9 +370,12 @@ export class JobsService {
       }
       const { version: _v, ...changes } = input;
       void _v;
+      // Switching a source back on, or changing how it is read, clears a back-off: try again at once.
+      const retry =
+        input.enabled === true || input.config ? { nextRunAt: null, consecutiveFailures: 0 } : {};
       const [row] = await tx
         .update(jobSources)
-        .set({ ...changes, version: sql`${jobSources.version} + 1` })
+        .set({ ...changes, ...retry, version: sql`${jobSources.version} + 1` })
         .where(eq(jobSources.id, id))
         .returning();
       const after = toSourceDto(row!);
@@ -376,30 +426,54 @@ export class JobsService {
     });
   }
 
-  /**
-   * Poll a source now: fetch (outside any transaction, since it is the network), then in one
-   * transaction store the raw postings, understand them, drop duplicates, add the new jobs and
-   * score them against every candidate in the organization.
-   */
+  /** Read a source now, as the person who pressed the button. */
   async runSource(p: Principal, id: string): Promise<RunResult> {
-    const source = await this.tenant.inTenant(p, async (tx) => {
+    return this.execute({ organizationId: p.organizationId, userId: p.userId }, id, 'MANUAL');
+  }
+
+  /**
+   * Read one source: fetch (outside any transaction, since it is the network), then in one transaction
+   * keep what the filters allow, store the raw postings, understand them, drop duplicates, add the new
+   * jobs and score them against every candidate. Every read leaves a line in the run history, and a
+   * failing source waits longer before the next scheduled read.
+   */
+  async execute(scope: RunScope, id: string, trigger: RunTrigger): Promise<RunResult> {
+    const tenantScope = { organizationId: scope.organizationId, userId: scope.userId ?? NIL_USER };
+    const source = await this.tenant.inTenant(tenantScope, async (tx) => {
       const [row] = await tx.select().from(jobSources).where(eq(jobSources.id, id));
       if (!row) throw notFound(`Source ${id} does not exist`);
       return row;
     });
     if (!source.enabled) throw conflict('source-disabled', 'The source is disabled');
-    const connector = CONNECTORS[source.type];
+    const startedAt = new Date();
+    const filters = sourceFiltersSchema.catch(NO_FILTERS).parse(source.filters);
 
-    let postings;
+    let postings: RawPosting[];
     try {
-      postings = await connector.fetch(source.config, this.fetcher);
+      postings = await CONNECTORS[source.type].fetch(source.config, this.fetcher);
     } catch (e) {
       const message = (e as Error).message.slice(0, 300);
-      await this.tenant.inTenant(p, async (tx) => {
+      await this.tenant.inTenant(tenantScope, async (tx) => {
+        const failures = source.consecutiveFailures + 1;
         await tx
           .update(jobSources)
-          .set({ lastRunAt: sql`now()`, lastRunStatus: 'ERROR', lastRunMessage: message })
+          .set({
+            lastRunAt: sql`now()`,
+            lastRunStatus: 'ERROR',
+            lastRunMessage: message,
+            consecutiveFailures: failures,
+            nextRunAt: sql`now() + make_interval(mins => ${retryAfterMinutes(source.pollIntervalMinutes, failures)})`,
+          })
           .where(eq(jobSources.id, id));
+        await tx.insert(sourceRuns).values({
+          organizationId: scope.organizationId,
+          sourceId: id,
+          startedAt,
+          finishedAt: sql`now()`,
+          status: 'ERROR',
+          trigger,
+          message,
+        });
       });
       throw new ProblemException(
         502,
@@ -409,85 +483,286 @@ export class JobsService {
       );
     }
 
-    return this.tenant.inTenant(p, async (tx) => {
+    return this.tenant.inTenant(tenantScope, async (tx) => {
+      const { kept, dropped } = applyFilters(postings, filters);
+      const stored = await this.storePostings(tx, scope.organizationId, id, kept);
       const result: RunResult = {
         fetched: postings.length,
-        created: 0,
-        duplicates: 0,
-        discarded: 0,
-        matched: 0,
+        created: stored.created,
+        duplicates: stored.duplicates,
+        filtered: dropped,
+        discarded: stored.discarded,
+        matched: stored.matched,
       };
-      const createdJobs: JobRow[] = [];
-      for (const raw of postings) {
-        const job = raw.title?.trim() && raw.company?.trim() ? normalizePosting(raw) : null;
-        await tx.insert(rawJobs).values({
-          organizationId: p.organizationId,
-          sourceId: id,
-          rawPayload: JSON.parse(JSON.stringify(raw)),
-          dedupHash: job?.dedupHash ?? 'unparseable',
-          status: job ? 'PROCESSED' : 'DISCARDED',
-          processedAt: sql`now()`,
-        });
-        if (!job) {
-          result.discarded += 1;
-          continue;
-        }
-        const company = await upsertCompany(tx, job.companyName);
-        const [row] = await tx
-          .insert(jobs)
-          .values({
-            organizationId: p.organizationId,
-            companyId: company.id,
-            sourceId: id,
-            externalId: job.externalId,
-            title: job.title,
-            description: job.description,
-            location: job.location,
-            remoteType: job.remoteType,
-            salaryMin: job.salaryMin,
-            salaryMax: job.salaryMax,
-            seniority: job.seniority,
-            requiredSkills: job.requiredSkills,
-            preferredSkills: job.preferredSkills,
-            visaSponsorship: job.visaSponsorship,
-            applicationUrl: job.applicationUrl,
-            postedAt: job.postedAt ?? new Date(),
-            dedupHash: job.dedupHash,
-          })
-          .onConflictDoNothing({ target: [jobs.organizationId, jobs.dedupHash] })
-          .returning();
-        if (row) {
-          createdJobs.push(row);
-          result.created += 1;
-        } else {
-          result.duplicates += 1;
-        }
-      }
-      result.matched = await this.matching.scoreJobs(tx, p.organizationId, createdJobs);
+      const message = `${result.created} new, ${result.duplicates} already known${
+        result.filtered ? `, ${result.filtered} filtered out` : ''
+      }${result.discarded ? `, ${result.discarded} discarded` : ''}`;
       await tx
         .update(jobSources)
         .set({
           lastRunAt: sql`now()`,
           lastRunStatus: 'OK',
-          lastRunMessage: `${result.created} new, ${result.duplicates} already known, ${result.discarded} discarded`,
+          lastRunMessage: message,
+          consecutiveFailures: 0,
+          nextRunAt: sql`now() + make_interval(mins => ${source.pollIntervalMinutes})`,
         })
         .where(eq(jobSources.id, id));
+      await tx.insert(sourceRuns).values({
+        organizationId: scope.organizationId,
+        sourceId: id,
+        startedAt,
+        finishedAt: sql`now()`,
+        status: 'OK',
+        trigger,
+        fetched: result.fetched,
+        created: result.created,
+        duplicates: result.duplicates,
+        filtered: result.filtered,
+        discarded: result.discarded,
+        message,
+      });
       await recordAudit(tx, {
-        organizationId: p.organizationId,
-        actorUserId: p.userId,
-        actorType: 'USER',
+        organizationId: scope.organizationId,
+        actorUserId: scope.userId,
+        actorType: scope.userId ? 'USER' : 'SYSTEM',
         action: 'source.run',
         resourceType: 'job-source',
         resourceId: id,
-        after: result,
+        after: { ...result, trigger },
       });
       if (result.created > 0) {
-        await enqueue(tx, p.organizationId, 'jobs.discovered', {
+        await enqueue(tx, scope.organizationId, 'jobs.discovered', {
           sourceId: id,
           created: result.created,
         });
       }
       return result;
+    });
+  }
+
+  /** Understand postings, drop the ones already on file, add the rest and score them. `sourceId` is null for a job added by hand from a link. */
+  private async storePostings(
+    tx: Tx,
+    organizationId: string,
+    sourceId: string | null,
+    postings: RawPosting[],
+  ): Promise<RunResult & { jobs: { raw: RawPosting; row: JobRow | null; hash: string }[] }> {
+    const out = { fetched: postings.length, created: 0, duplicates: 0, filtered: 0, discarded: 0 };
+    const createdJobs: JobRow[] = [];
+    const seen: { raw: RawPosting; row: JobRow | null; hash: string }[] = [];
+    for (const raw of postings) {
+      const job = raw.title?.trim() && raw.company?.trim() ? normalizePosting(raw) : null;
+      if (sourceId) {
+        await tx.insert(rawJobs).values({
+          organizationId,
+          sourceId,
+          rawPayload: JSON.parse(JSON.stringify(raw)),
+          dedupHash: job?.dedupHash ?? 'unparseable',
+          status: job ? 'PROCESSED' : 'DISCARDED',
+          processedAt: sql`now()`,
+        });
+      }
+      if (!job) {
+        out.discarded += 1;
+        continue;
+      }
+      const company = await upsertCompany(tx, job.companyName);
+      const [row] = await tx
+        .insert(jobs)
+        .values({
+          organizationId,
+          companyId: company.id,
+          sourceId,
+          externalId: job.externalId,
+          title: job.title,
+          description: job.description,
+          location: job.location,
+          remoteType: job.remoteType,
+          salaryMin: job.salaryMin,
+          salaryMax: job.salaryMax,
+          seniority: job.seniority,
+          requiredSkills: job.requiredSkills,
+          preferredSkills: job.preferredSkills,
+          visaSponsorship: job.visaSponsorship,
+          applicationUrl: job.applicationUrl,
+          postedAt: job.postedAt ?? new Date(),
+          dedupHash: job.dedupHash,
+        })
+        .onConflictDoNothing({ target: [jobs.organizationId, jobs.dedupHash] })
+        .returning();
+      if (row) {
+        createdJobs.push(row);
+        out.created += 1;
+      } else {
+        out.duplicates += 1;
+      }
+      seen.push({ raw, row: row ?? null, hash: job.dedupHash });
+    }
+    const matched = await this.matching.scoreJobs(tx, organizationId, createdJobs);
+    return { ...out, matched, jobs: seen };
+  }
+
+  // ---------- the catalog, trying a source, and adding jobs from links ----------
+
+  catalog(): CatalogEntryDto[] {
+    return CATALOG.map((entry) => {
+      const { fixed, ...visible } = entry;
+      void fixed;
+      return visible;
+    });
+  }
+
+  /** Read a source without saving anything: what it would bring, so the person can judge before adding it. */
+  async preview(input: PreviewSource): Promise<PreviewResult> {
+    const { type, config } = this.resolve(input);
+    let postings: RawPosting[];
+    try {
+      postings = await CONNECTORS[type].fetch(config, this.fetcher);
+    } catch (e) {
+      throw new ProblemException(
+        502,
+        'source-fetch-failed',
+        'The source could not be read',
+        (e as Error).message.slice(0, 300),
+      );
+    }
+    const { kept, dropped } = applyFilters(postings, input.filters);
+    return {
+      fetched: postings.length,
+      kept: kept.length,
+      filtered: dropped,
+      type,
+      config,
+      sample: kept.slice(0, 8).map((r) => ({
+        title: r.title,
+        company: r.company,
+        location: r.location,
+        url: r.url,
+        postedAt: r.postedAt?.toISOString() ?? null,
+      })),
+    };
+  }
+
+  async createFromCatalog(p: Principal, input: CreateFromCatalog): Promise<SourceDto> {
+    const { type, config, entryName } = this.resolve({
+      presetId: input.presetId,
+      values: input.values,
+    });
+    const hint = Object.values(input.values).find((v) => v.trim());
+    return this.createSource(p, {
+      type,
+      config,
+      name: input.name ?? (hint && hint.length <= 40 ? `${entryName} (${hint})` : entryName),
+      pollIntervalMinutes: input.pollIntervalMinutes,
+      filters: input.filters,
+      presetId: input.presetId,
+    });
+  }
+
+  private resolve(input: {
+    presetId?: string;
+    values?: Record<string, string>;
+    type?: PreviewSource['type'];
+    config?: Record<string, string>;
+  }) {
+    if (input.presetId) {
+      const entry = entryById(input.presetId);
+      if (!entry) throw notFound(`There is no catalog entry ${input.presetId}`);
+      const built = buildConfig(entry, input.values ?? {});
+      if ('problem' in built)
+        throw unprocessable(
+          'invalid-source-config',
+          'The source settings are not valid',
+          built.problem,
+        );
+      return { type: entry.type!, config: built.config, entryName: entry.name };
+    }
+    const type = input.type!;
+    const config = input.config!;
+    const problem = CONNECTORS[type].validateConfig(config);
+    if (problem)
+      throw unprocessable('invalid-source-config', 'The source settings are not valid', problem);
+    return { type, config, entryName: type };
+  }
+
+  /** Add jobs from their own pages: for sites that offer no feed, or a link a friend sent. */
+  async importLinks(p: Principal, input: ImportLinks): Promise<ImportResult> {
+    const urls = [
+      ...new Set([
+        ...input.urls,
+        ...(input.text?.match(URL_IN_TEXT) ?? []).map((u) => u.replace(/[.,;:!?]+$/, '')),
+      ]),
+    ].slice(0, 20);
+    if (urls.length === 0)
+      throw unprocessable('no-links', 'No links were found', 'Paste at least one https link');
+    const results: ImportResult['results'] = [];
+    for (const url of urls) {
+      let raw: RawPosting;
+      try {
+        raw = await importPostingFromUrl(url, this.fetcher);
+      } catch (e) {
+        results.push({
+          url,
+          outcome: 'FAILED',
+          jobId: null,
+          title: null,
+          company: null,
+          message: (e as Error).message.slice(0, 300),
+        });
+        continue;
+      }
+      results.push(
+        await this.tenant.inTenant(p, async (tx) => {
+          const stored = await this.storePostings(tx, p.organizationId, null, [raw]);
+          const one = stored.jobs[0];
+          let jobId = one?.row?.id ?? null;
+          if (one && !one.row) {
+            const [existing] = await tx
+              .select({ id: jobs.id })
+              .from(jobs)
+              .where(and(eq(jobs.organizationId, p.organizationId), eq(jobs.dedupHash, one.hash)));
+            jobId = existing?.id ?? null;
+          }
+          if (stored.created > 0) {
+            await recordAudit(tx, {
+              organizationId: p.organizationId,
+              actorUserId: p.userId,
+              actorType: 'USER',
+              action: 'job.imported',
+              resourceType: 'job',
+              resourceId: jobId!,
+              after: { url, title: raw.title, company: raw.company },
+            });
+            await enqueue(tx, p.organizationId, 'job.created', { jobId });
+          }
+          return {
+            url,
+            outcome: stored.created > 0 ? ('ADDED' as const) : ('ALREADY_KNOWN' as const),
+            jobId,
+            title: raw.title,
+            company: raw.company,
+            message: stored.discarded > 0 ? 'The page has no job title or company to read' : null,
+          };
+        }),
+      );
+    }
+    return { results };
+  }
+
+  async listRuns(p: Principal, sourceId: string): Promise<SourceRunDto[]> {
+    return this.tenant.inTenant(p, async (tx) => {
+      const [source] = await tx
+        .select({ id: jobSources.id })
+        .from(jobSources)
+        .where(eq(jobSources.id, sourceId));
+      if (!source) throw notFound(`Source ${sourceId} does not exist`);
+      const rows = await tx
+        .select()
+        .from(sourceRuns)
+        .where(eq(sourceRuns.sourceId, sourceId))
+        .orderBy(desc(sourceRuns.startedAt))
+        .limit(20);
+      return rows.map(toRunDto);
     });
   }
 
