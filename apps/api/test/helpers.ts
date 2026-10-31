@@ -100,6 +100,8 @@ export async function startContext(
     JWT_SECRET: 'test-secret-test-secret-test-secret-123456',
     OUTBOX_POLL_MS: '0',
     SOURCES_POLL_MS: '0',
+    // A connected payment provider needs to know where buyers return to; the suite never opens it.
+    ...(options.paymentProviders ? { APP_URL: 'https://app.example.test' } : {}),
     // 32 bytes, fixed: the suite only needs encryption to work, not to be secret.
     SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'),
     // The suite never inherits a developer's AI vendor keys: "AI is not set up" is a state it tests on purpose.
