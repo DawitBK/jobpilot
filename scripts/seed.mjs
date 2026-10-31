@@ -285,6 +285,8 @@ async function main() {
   const moved = [];
   if (jobCount === 0) {
     for (const [key, journeys] of Object.entries(JOURNEYS)) {
+      // The owner's own journeys exist only when seeding into their workspace (SEED_INTO_TOKEN).
+      if (!sessions[key]) continue;
       const token = sessions[key].accessToken;
       const matches = must(
         await call('GET', `/matches?candidateProfileId=${profileIds[key]}&limit=100`, { token }),

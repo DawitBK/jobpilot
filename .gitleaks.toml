@@ -1,0 +1,11 @@
+# The default rules, plus: test files use made-up keys on purpose (to prove they are stored encrypted,
+# never echoed back, and refused when malformed). Real credentials never belong in a test either, so
+# anything else that looks like a key is still reported.
+title = "JobPilot"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Made-up API keys in tests"
+paths = ['''apps/api/test/.*\.test\.ts''', '''apps/api/src/.*\.test\.ts''', '''e2e/.*\.ts''']

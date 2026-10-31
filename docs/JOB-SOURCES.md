@@ -4,10 +4,10 @@ JobPilot finds jobs by reading **sources**. A source is read on its own schedule
 
 Open **Job sources → Add a source** to see the catalog. Every entry says how it can honestly be used:
 
-| Label | Meaning |
-| --- | --- |
-| **Open feed** | The site publishes an open feed or interface for exactly this. Pick it, fill in an account or a keyword, add it. |
-| **You set it up** | Works with any site that publishes structured data, a JSON API, an RSS feed or a plain listing page. You give the address and, for a listing page, say which part is the title and company. |
+| Label              | Meaning                                                                                                                                                                                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Open feed**      | The site publishes an open feed or interface for exactly this. Pick it, fill in an account or a keyword, add it.                                                                                                                                                                                                  |
+| **You set it up**  | Works with any site that publishes structured data, a JSON API, an RSS feed or a plain listing page. You give the address and, for a listing page, say which part is the title and company.                                                                                                                       |
 | **Add from links** | No open feed, and the site's terms forbid automated collection (LinkedIn, Glassdoor, Indeed, Bayt) or the site hides its data behind a key (Hahu). JobPilot does not scrape them: paste a job's link, several links, or a whole job-alert email under **Add jobs from links** and each job is read from its page. |
 
 Every source can be **tried before it is added** ("Test it"): you see how many jobs it would bring, how many your filters keep, and a sample. Nothing is saved by a test.
